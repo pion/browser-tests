@@ -1,3 +1,8 @@
+/**
+* SPDX-FileCopyrightText: 2026 The Pion community <https://pion.ly>
+* SPDX-License-Identifier: MIT
+*/
+
 import { defineConfig } from "vitest/config";
 import { webdriverio } from "@vitest/browser-webdriverio";
 

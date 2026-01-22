@@ -1,3 +1,8 @@
+/**
+* SPDX-FileCopyrightText: 2026 The Pion community <https://pion.ly>
+* SPDX-License-Identifier: MIT
+*/
+
 import { describe, it, expect } from "vitest";
 
 describe("Browser Hello World", () => {
