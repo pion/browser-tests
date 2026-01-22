@@ -1,3 +1,3 @@
-module github.com/pion/template
+module github.com/pion/browsertests
 
 go 1.21
