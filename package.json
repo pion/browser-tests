@@ -23,6 +23,18 @@
   "type": "module",
   "main": "index.js",
   "scripts": {
-    "test": "npm run test"
+    "test": "vitest run",
+    "test:browser": "vitest run",
+    "test:chrome": "cross-env TEST_BROWSER=chrome vitest run",
+    "test:firefox": "cross-env TEST_BROWSER=firefox vitest run",
+    "test:edge": "cross-env TEST_BROWSER=edge vitest run",
+    "test:safari": "cross-env TEST_BROWSER=safari vitest run"
+  },
+  "devDependencies": {
+    "@vitest/browser": "^4.0.17",
+    "@vitest/browser-webdriverio": "^4.0.17",
+    "cross-env": "^10.1.0",
+    "vitest": "^4.0.17",
+    "webdriverio": "^9.23.2"
   }
 }
