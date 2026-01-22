@@ -1,0 +1,28 @@
+{
+  "name": "pion-browser-tests",
+  "version": "1.0.0",
+  "description": "Automated end-to-end browser tests that verify pion/webrtc compatibility across all major browsers.",
+  "keywords": [
+    "browser",
+    "tests",
+    "webrtc",
+    "pion",
+    "media",
+    "real-time"
+  ],
+  "homepage": "https://github.com/pion/browser-tests#readme",
+  "bugs": {
+    "url": "https://github.com/pion/browser-tests/issues"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/pion/browser-tests.git"
+  },
+  "license": "MIT",
+  "author": "Pion",
+  "type": "module",
+  "main": "index.js",
+  "scripts": {
+    "test": "npm run test"
+  }
+}
