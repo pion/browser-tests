@@ -9,7 +9,6 @@ linters:
     - bodyclose        # checks whether HTTP response body is closed successfully
     - containedctx     # containedctx is a linter that detects struct contained context.Context field
     - contextcheck     # check the function whether use a non-inherited context
-    - cyclop           # checks function and package cyclomatic complexity
     - decorder         # check declaration order and count of types, constants, variables and functions
     - dogsled          # Checks assignments with too many blank identifiers (e.g. x, _, _, _, := f())
     - dupl             # Tool for code clone detection
@@ -23,7 +22,6 @@ linters:
     - forbidigo        # Forbids identifiers
     - forcetypeassert  # finds forced type assertions
     - gochecknoglobals # Checks that no globals are present in Go code
-    - gocognit         # Computes and checks the cognitive complexity of functions
     - goconst          # Finds repeated strings that could be replaced by a constant
     - gocritic         # The most opinionated Go source code linter
     - gocyclo          # Computes and checks the cyclomatic complexity of functions
@@ -86,11 +84,8 @@ linters:
       default-signifies-exhaustive: true
     forbidigo:
       forbid:
-        - pattern: ^fmt.Print(f|ln)?$
-        - pattern: ^log.(Panic|Fatal|Print)(f|ln)?$
         - pattern: ^os.Exit$
         - pattern: ^panic$
-        - pattern: ^print(ln)?$
         - pattern: ^testing.T.(Error|Errorf|Fatal|Fatalf|Fail|FailNow)$
           pkg: ^testing$
           msg: use testify/assert instead

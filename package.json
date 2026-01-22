@@ -23,12 +23,12 @@
   "type": "module",
   "main": "index.js",
   "scripts": {
-    "test": "vitest run",
-    "test:browser": "vitest run",
-    "test:chrome": "cross-env TEST_BROWSER=chrome vitest run",
-    "test:firefox": "cross-env TEST_BROWSER=firefox vitest run",
-    "test:edge": "cross-env TEST_BROWSER=edge vitest run",
-    "test:safari": "cross-env TEST_BROWSER=safari vitest run"
+    "test": "node scripts/run-browser-tests.ts",
+    "test:browser": "node scripts/run-browser-tests.ts",
+    "test:chrome": "cross-env TEST_BROWSER=chrome node scripts/run-browser-tests.ts",
+    "test:firefox": "cross-env TEST_BROWSER=firefox node scripts/run-browser-tests.ts",
+    "test:edge": "cross-env TEST_BROWSER=edge node scripts/run-browser-tests.ts",
+    "test:safari": "cross-env TEST_BROWSER=safari node scripts/run-browser-tests.ts"
   },
   "devDependencies": {
     "@vitest/browser": "^4.0.17",
