@@ -23,6 +23,7 @@
   "type": "module",
   "main": "index.js",
   "scripts": {
+    "lint": "eslint .",
     "test": "node scripts/run-browser-tests.ts",
     "test:browser": "node scripts/run-browser-tests.ts",
     "test:chrome": "cross-env TEST_BROWSER=chrome node scripts/run-browser-tests.ts",
@@ -31,9 +32,14 @@
     "test:safari": "cross-env TEST_BROWSER=safari node scripts/run-browser-tests.ts"
   },
   "devDependencies": {
+    "@eslint/js": "^9.39.2",
     "@vitest/browser": "^4.0.17",
     "@vitest/browser-webdriverio": "^4.0.17",
     "cross-env": "^10.1.0",
+    "eslint": "^9.39.2",
+    "jiti": "^2.6.1",
+    "typescript": "^5.9.3",
+    "typescript-eslint": "^8.54.0",
     "vitest": "^4.0.17",
     "webdriverio": "^9.23.2"
   }

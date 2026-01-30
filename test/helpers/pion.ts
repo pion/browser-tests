@@ -17,23 +17,19 @@ export const waitForIceGatheringComplete = async (
   }
 
   await new Promise<void>((resolve, reject) => {
-    let timeout: ReturnType<typeof setTimeout> | undefined;
+    const timeout = setTimeout(() => {
+      pc.removeEventListener("icegatheringstatechange", onChange);
+      reject(new Error("ICE gathering timeout"));
+    }, timeoutMs);
 
     const onChange = () => {
       if (pc.iceGatheringState !== "complete") {
         return;
       }
-      if (timeout) {
-        clearTimeout(timeout);
-      }
+      clearTimeout(timeout);
       pc.removeEventListener("icegatheringstatechange", onChange);
       resolve();
     };
-
-    timeout = setTimeout(() => {
-      pc.removeEventListener("icegatheringstatechange", onChange);
-      reject(new Error("ICE gathering timeout"));
-    }, timeoutMs);
 
     pc.addEventListener("icegatheringstatechange", onChange);
   });
@@ -48,12 +44,13 @@ export const waitForDataChannelOpen = async (
   }
 
   await new Promise<void>((resolve, reject) => {
-    let timeout: ReturnType<typeof setTimeout> | undefined;
+    const timeout = setTimeout(() => {
+      cleanup();
+      reject(new Error("Data channel open timeout"));
+    }, timeoutMs);
 
     const cleanup = () => {
-      if (timeout) {
-        clearTimeout(timeout);
-      }
+      clearTimeout(timeout);
       channel.removeEventListener("open", onOpen);
       channel.removeEventListener("error", onError);
     };
@@ -68,11 +65,6 @@ export const waitForDataChannelOpen = async (
       reject(new Error("Data channel open error"));
     };
 
-    timeout = setTimeout(() => {
-      cleanup();
-      reject(new Error("Data channel open timeout"));
-    }, timeoutMs);
-
     channel.addEventListener("open", onOpen);
     channel.addEventListener("error", onError);
   });
@@ -83,12 +75,13 @@ export const waitForDataChannelMessage = async (
   timeoutMs = 10_000,
 ) => {
   return new Promise<string | ArrayBuffer>((resolve, reject) => {
-    let timeout: ReturnType<typeof setTimeout> | undefined;
+    const timeout = setTimeout(() => {
+      cleanup();
+      reject(new Error("Data channel message timeout"));
+    }, timeoutMs);
 
     const cleanup = () => {
-      if (timeout) {
-        clearTimeout(timeout);
-      }
+      clearTimeout(timeout);
       channel.removeEventListener("message", onMessage);
     };
 
@@ -96,11 +89,6 @@ export const waitForDataChannelMessage = async (
       cleanup();
       resolve(event.data);
     };
-
-    timeout = setTimeout(() => {
-      cleanup();
-      reject(new Error("Data channel message timeout"));
-    }, timeoutMs);
 
     channel.addEventListener("message", onMessage);
   });
