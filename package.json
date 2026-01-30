@@ -24,6 +24,7 @@
   "main": "index.js",
   "scripts": {
     "lint": "eslint .",
+    "typecheck": "tsc",
     "test": "node scripts/run-browser-tests.ts",
     "test:browser": "node scripts/run-browser-tests.ts",
     "test:chrome": "cross-env TEST_BROWSER=chrome node scripts/run-browser-tests.ts",
