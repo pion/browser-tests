@@ -4,7 +4,7 @@ go 1.24.0
 
 toolchain go1.25.7
 
-require github.com/pion/webrtc/v4 v4.2.8
+require github.com/pion/webrtc/v4 v4.2.9
 
 require (
 	github.com/google/uuid v1.6.0 // indirect
