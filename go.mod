@@ -2,7 +2,7 @@ module github.com/pion/browsertests
 
 go 1.24.0
 
-toolchain go1.26.4
+toolchain go1.26.5
 
 require github.com/pion/webrtc/v4 v4.2.16
 
