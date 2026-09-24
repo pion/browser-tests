@@ -4,7 +4,7 @@
   description = "Pion browser tests development environment";
 
   inputs = {
-    nixpkgs.url = "github:NixOS/nixpkgs/nixos-24.11";
+    nixpkgs.url = "github:NixOS/nixpkgs/nixos-26.05";
   };
 
   outputs = { self, nixpkgs }:
@@ -20,17 +20,24 @@
         {
           default = pkgs.mkShell {
             buildInputs = [
+              pkgs.go
+              pkgs.nodejs_24
+            ] ++ pkgs.lib.optionals pkgs.stdenv.isLinux [
               pkgs.chromium
               pkgs.chromedriver
               pkgs.firefox
               pkgs.geckodriver
-              pkgs.nodejs_23
             ];
 
             shellHook = ''
-              export CHROME_BIN=$(which chromium)
               echo "Pion browser tests dev shell"
               echo "- node:         $(node --version)"
+              echo "- go:           $(go version)"
+            '' + pkgs.lib.optionalString pkgs.stdenv.isLinux ''
+              export CHROME_BIN=${pkgs.chromium}/bin/chromium
+              export CHROMEDRIVER_PATH=${pkgs.chromedriver}/bin/chromedriver
+              export FIREFOX_BIN=${pkgs.firefox}/bin/firefox
+              export GECKODRIVER_PATH=${pkgs.geckodriver}/bin/geckodriver
               echo "- chromium:     $(chromium --version 2>/dev/null)"
               echo "- firefox:      $(firefox --version 2>/dev/null)"
               echo "- chromedriver: $(chromedriver --version 2>/dev/null | head -1)"
@@ -39,9 +46,11 @@
               echo "Run tests:"
               echo "- npm run test:chrome"
               echo "- npm run test:firefox"
+            '' + pkgs.lib.optionalString pkgs.stdenv.isDarwin ''
+              echo "Use installed macOS browsers; Safari requires Remote Automation."
+              echo "Run tests: npm run test:safari"
             '';
           };
         });
     };
 }
-

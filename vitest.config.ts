@@ -4,42 +4,72 @@
 */
 
 import { defineConfig } from "vitest/config";
-import { webdriverio } from "@vitest/browser-webdriverio";
+import {
+  webdriverio,
+  type WebdriverProviderOptions,
+} from "@vitest/browser-webdriverio";
 
-const browserName = process.env.TEST_BROWSER || "chrome";
-const useLocalDrivers = Boolean(process.env.CHROME_BIN);
+const browserName = (process.env.TEST_BROWSER || "chrome").toLowerCase();
+if (
+  browserName !== "chrome" && browserName !== "firefox" &&
+  browserName !== "edge" && browserName !== "safari"
+) {
+  throw new Error(
+    `Unsupported TEST_BROWSER "${browserName}". Use chrome, firefox, edge, or safari.`,
+  );
+}
 
-const capabilities = {
-  ...(browserName !== "safari" ? { webSocketUrl: true } : {}),
-  ...(useLocalDrivers ? { "wdio:skipAutomationSetup": true } : {}),
-  "goog:chromeOptions": {
-    ...(useLocalDrivers ? { binary: process.env.CHROME_BIN } : {}),
-    args: [
-      "--autoplay-policy=no-user-gesture-required",
-      "--use-fake-ui-for-media-stream",
-      "--use-fake-device-for-media-stream",
-      "--no-sandbox",
-    ],
-  },
-  "moz:firefoxOptions": {
-    prefs: {
-      "media.autoplay.default": 0,
-      "media.autoplay.enabled.user-gestures-needed": false,
-      "media.autoplay.block-webaudio": false,
-      "media.autoplay.ask-permission": false,
-      "media.navigator.permission.disabled": true,
-      "media.navigator.streams.fake": true,
+const chromiumArgs = [
+  "--autoplay-policy=no-user-gesture-required",
+  "--use-fake-ui-for-media-stream",
+  "--use-fake-device-for-media-stream",
+];
+
+const capabilitiesByBrowser = {
+  chrome: {
+    webSocketUrl: true,
+    "goog:chromeOptions": {
+      binary: process.env.CHROME_BIN,
+      args: [...chromiumArgs, "--no-sandbox"],
+    },
+    "wdio:chromedriverOptions": {
+      binary: process.env.CHROMEDRIVER_PATH,
     },
   },
-  "ms:edgeOptions": {
-    args: [
-      "--autoplay-policy=no-user-gesture-required",
-      "--use-fake-ui-for-media-stream",
-      "--use-fake-device-for-media-stream",
-    ],
+  firefox: {
+    webSocketUrl: true,
+    "moz:firefoxOptions": {
+      binary: process.env.FIREFOX_BIN,
+      prefs: {
+        "media.autoplay.default": 0,
+        "media.autoplay.enabled.user-gestures-needed": false,
+        "media.autoplay.block-webaudio": false,
+        "media.autoplay.ask-permission": false,
+        "media.navigator.permission.disabled": true,
+        "media.navigator.streams.fake": true,
+      },
+    },
+    "wdio:geckodriverOptions": {
+      binary: process.env.GECKODRIVER_PATH,
+    },
   },
-  "safari:autoplay": true,
-};
+  edge: {
+    webSocketUrl: true,
+    "ms:edgeOptions": {
+      binary: process.env.EDGE_BIN,
+      args: [...chromiumArgs],
+    },
+    "wdio:edgedriverOptions": {
+      binary: process.env.EDGEDRIVER_PATH,
+    },
+  },
+  safari: {
+    "wdio:enforceWebDriverClassic": true,
+  },
+} satisfies Record<
+  typeof browserName,
+  NonNullable<WebdriverProviderOptions["capabilities"]>
+>;
 
 export default defineConfig({
   test: {
@@ -47,13 +77,13 @@ export default defineConfig({
     include: ["test/**/*.test.ts"],
     browser: {
       enabled: true,
-      provider: webdriverio({ capabilities }),
+      provider: webdriverio({ capabilities: capabilitiesByBrowser[browserName] }),
       headless: browserName !== "safari" && process.env.TEST_HEADLESS !== "false",
       connectTimeout: 90_000,
       instances: [
         {
           name: browserName,
-          browser: browserName.toLowerCase() as "chrome" | "firefox" | "edge" | "safari",
+          browser: browserName,
         },
       ],
     },

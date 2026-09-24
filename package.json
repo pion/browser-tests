@@ -21,6 +21,9 @@
   "license": "MIT",
   "author": "Pion",
   "type": "module",
+  "engines": {
+    "node": ">=24.0.0"
+  },
   "main": "index.js",
   "scripts": {
     "lint": "eslint .",
