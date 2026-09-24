@@ -64,6 +64,9 @@ func healthHandler(w http.ResponseWriter, r *http.Request) {
 
 		return
 	}
+	if id := os.Getenv("TESTSERVER_ID"); id != "" {
+		w.Header().Set("X-Test-Server-ID", id)
+	}
 	w.WriteHeader(http.StatusOK)
 	_, _ = w.Write([]byte("ok"))
 }

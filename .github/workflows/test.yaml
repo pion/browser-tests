@@ -44,6 +44,9 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      - name: Test runner lifecycle
+        run: npm run test:runner
+
       - name: Enable Safari automation
         if: matrix.browser == 'safari'
         run: sudo safaridriver --enable
