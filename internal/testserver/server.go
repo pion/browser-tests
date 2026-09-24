@@ -81,6 +81,7 @@ func reply(res http.ResponseWriter, value any) {
 
 func (s *Server) create(res http.ResponseWriter, req *http.Request) {
 	var body struct {
+		AudioOnly         bool                 `json:"audioOnly"`
 		PauseICEGathering bool                 `json:"pauseIceGathering"`
 		ICELite           bool                 `json:"iceLite"`
 		Behavior          string               `json:"behavior"`
@@ -114,7 +115,19 @@ func (s *Server) create(res http.ResponseWriter, req *http.Request) {
 		})
 	}
 	settings.SetLite(body.ICELite)
-	pc, err := webrtc.NewAPI(webrtc.WithSettingEngine(settings)).NewPeerConnection(body.Configuration)
+	options := []func(*webrtc.API){webrtc.WithSettingEngine(settings)}
+	if body.AudioOnly {
+		engine := &webrtc.MediaEngine{}
+		if err := engine.RegisterCodec(webrtc.RTPCodecParameters{
+			RTPCodecCapability: webrtc.RTPCodecCapability{MimeType: webrtc.MimeTypeOpus, ClockRate: 48000, Channels: 2},
+			PayloadType:        111,
+		}, webrtc.RTPCodecTypeAudio); err != nil {
+			http.Error(res, err.Error(), http.StatusBadRequest)
+			return
+		}
+		options = append(options, webrtc.WithMediaEngine(engine))
+	}
+	pc, err := webrtc.NewAPI(options...).NewPeerConnection(body.Configuration)
 	if err != nil {
 		http.Error(res, err.Error(), http.StatusBadRequest)
 
@@ -175,7 +188,15 @@ func (s *Server) snapshot(res http.ResponseWriter, req *http.Request) {
 	}
 	session.mu.Lock()
 	defer session.mu.Unlock()
+	// Expose configured receiver tracks even when no RTP arrives and OnTrack never fires.
+	receiverTracks := map[string]int{}
+	for _, transceiver := range session.pc.GetTransceivers() {
+		if receiver := transceiver.Receiver(); receiver != nil {
+			receiverTracks[transceiver.Mid()] = len(receiver.Tracks())
+		}
+	}
 	reply(res, map[string]any{
+		"receiverTracks":   receiverTracks,
 		"localDescription": session.pc.LocalDescription(), "remoteDescription": session.pc.RemoteDescription(),
 		"iceGatheringState": session.pc.ICEGatheringState().String(),
 		"connectionState":   session.pc.ConnectionState().String(), "signalingState": session.pc.SignalingState().String(),
@@ -226,6 +247,25 @@ func (s *Server) operate(res http.ResponseWriter, req *http.Request) {
 			return
 		}
 		err = session.pc.AddICECandidate(candidate)
+	case "add-track":
+		var body struct {
+			Kind string `json:"kind"`
+		}
+		if !decode(res, req, &body) {
+			return
+		}
+		mimeType := webrtc.MimeTypeVP8
+		if body.Kind == "audio" {
+			mimeType = webrtc.MimeTypeOpus
+		} else if body.Kind != "video" {
+			http.Error(res, "invalid track kind", http.StatusBadRequest)
+			return
+		}
+		var track *webrtc.TrackLocalStaticRTP
+		track, err = webrtc.NewTrackLocalStaticRTP(webrtc.RTPCodecCapability{MimeType: mimeType}, body.Kind, "interop")
+		if err == nil {
+			_, err = session.pc.AddTrack(track)
+		}
 	case "add-transceiver":
 		var body struct {
 			Kind      string `json:"kind"`

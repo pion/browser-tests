@@ -8,6 +8,7 @@ const timeoutMs = 10_000;
 const serverURL = import.meta.env.VITE_TEST_SERVER_URL ?? "http://127.0.0.1:38481";
 
 type Snapshot = {
+  receiverTracks: Record<string, number>;
   localDescription: RTCSessionDescriptionInit | null;
   remoteDescription: RTCSessionDescriptionInit | null;
   iceGatheringState: RTCIceGatheringState;
@@ -42,6 +43,7 @@ export class PionPeer {
   createDataChannel(label: string, options: RTCDataChannelInit = {}): Promise<void> {
     return this.command("create-data-channel", { label, options });
   }
+  addTrack(kind: "audio" | "video"): Promise<void> { return this.command("add-track", { kind }); }
   addTransceiver(kind: "audio" | "video", direction: RTCRtpTransceiverDirection = "sendrecv"): Promise<void> {
     return this.command("add-transceiver", { kind, direction });
   }
@@ -85,7 +87,7 @@ export class Interop {
     return pc;
   }
 
-  async pionPeer(options: { behavior?: string; configuration?: RTCConfiguration; iceLite?: boolean; pauseIceGathering?: boolean } = {}): Promise<PionPeer> {
+  async pionPeer(options: { behavior?: string; configuration?: RTCConfiguration; iceLite?: boolean; pauseIceGathering?: boolean; audioOnly?: boolean } = {}): Promise<PionPeer> {
     const { id } = await request<{ id: string }>("/peers", "POST", options);
     const peer = new PionPeer(id);
     this.pions.push(peer);
