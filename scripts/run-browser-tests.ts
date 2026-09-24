@@ -212,7 +212,12 @@ const waitForHealth = async (id: string) => {
     } catch {
       signal.throwIfAborted();
     }
-    await delay(250, undefined, { signal });
+    try {
+      await delay(250, undefined, { signal });
+    } catch (error) {
+      signal.throwIfAborted();
+      throw error;
+    }
   }
 };
 
