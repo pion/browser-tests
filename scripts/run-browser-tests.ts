@@ -3,7 +3,7 @@
 
 import { spawn, type ChildProcess } from "node:child_process";
 import { randomUUID } from "node:crypto";
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdtemp, realpath, rm, stat } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import process from "node:process";
@@ -23,30 +23,36 @@ type ManagedChild = {
   process: ChildProcess;
   result: Promise<ExitResult>;
   exited: boolean;
+  output: string;
 };
 
-const start = (command: string, args: string[], env = process.env) => {
+type CommandOptions = { cwd?: string; env?: NodeJS.ProcessEnv; capture?: boolean };
+
+const start = (command: string, args: string[], options: CommandOptions = {}) => {
   const child = spawn(command, args, {
-    cwd: rootDir,
-    env,
-    stdio: "inherit",
+    cwd: options.cwd ?? rootDir,
+    env: options.env ?? process.env,
+    stdio: ["inherit", options.capture ? "pipe" : "inherit", "inherit"],
     // Give each child its own process group so interruption also stops descendants.
     detached: process.platform !== "win32",
   });
   const managed: ManagedChild = {
     process: child,
     exited: false,
+    output: "",
     result: new Promise((resolve) => {
       child.once("error", (error) => {
         managed.exited = true;
         resolve({ code: null, error });
       });
-      child.once("exit", (code, signal) => {
+      child.once("exit", () => { managed.exited = true; });
+      child.once("close", (code, signal) => {
         managed.exited = true;
         resolve({ code, signal });
       });
     }),
   };
+  child.stdout?.on("data", (data: Buffer) => { managed.output += data.toString(); });
   children.push(managed);
   return managed;
 };
@@ -67,6 +73,81 @@ const whileRunning = async <T>(operation: Promise<T>): Promise<T> => {
   } finally {
     signal.removeEventListener("abort", onAbort);
   }
+};
+
+const execute = async (command: string, args: string[], options: CommandOptions = {}) => {
+  cancellation.signal.throwIfAborted();
+  const child = start(command, args, options);
+  const result = await whileRunning(child.result);
+  if (result.code !== 0) {
+    throw exitError(`${command === "go" ? "Go" : command} ${args[0]}`, result);
+  }
+  return child.output.trim();
+};
+
+const parseArguments = () => {
+  let source = process.env.PION_WEBRTC_SOURCE || "";
+  let selected = false;
+  const args = process.argv.slice(2);
+  const vitestArgs: string[] = [];
+  for (let index = 0; index < args.length; index++) {
+    const arg = args[index];
+    if (arg === "--webrtc" || arg.startsWith("--webrtc=")) {
+      if (selected) {
+        throw new Error("Specify --webrtc only once");
+      }
+      source = arg === "--webrtc" ? args[++index] : arg.slice("--webrtc=".length);
+      if (!source || source.startsWith("-")) {
+        throw new Error("--webrtc requires a checkout path, branch, tag, or commit");
+      }
+      selected = true;
+    } else {
+      vitestArgs.push(arg);
+    }
+  }
+  return { source, vitestArgs };
+};
+
+const prepareWorkspace = async (source: string, directory: string) => {
+  const env = { ...process.env, GOWORK: "off" };
+  if (!source) {
+    return env;
+  }
+
+  let checkout = path.resolve(source);
+  const info = await stat(checkout).catch((error: NodeJS.ErrnoException) => {
+    if (error.code !== "ENOENT") {
+      throw error;
+    }
+    return undefined;
+  });
+  if (info) {
+    if (!info.isDirectory()) {
+      throw new Error(`WebRTC checkout is not a directory: ${checkout}`);
+    }
+  } else {
+    if (path.isAbsolute(source) || /^\.{1,2}([/\\]|$)/.test(source)) {
+      throw new Error(`WebRTC checkout does not exist: ${checkout}`);
+    }
+    checkout = path.join(directory, "webrtc");
+    const repository = process.env.PION_WEBRTC_REPOSITORY || "https://github.com/pion/webrtc.git";
+    await execute("git", ["init", "--quiet", checkout]);
+    await execute("git", ["-C", checkout, "fetch", "--quiet", "--depth=1", repository, "--", source]);
+    await execute("git", ["-C", checkout, "checkout", "--quiet", "--detach", "FETCH_HEAD"]);
+    const commit = await execute("git", ["-C", checkout, "rev-parse", "HEAD"], { capture: true });
+    console.log(`Testing Pion WebRTC ref ${source} at ${commit}`);
+  }
+
+  checkout = await realpath(checkout);
+  const modulePath = await execute("go", ["list", "-m", "-f", "{{.Path}}"], {
+    cwd: checkout, env, capture: true,
+  });
+  if (modulePath !== "github.com/pion/webrtc/v4") {
+    throw new Error(`Expected github.com/pion/webrtc/v4 checkout, got ${modulePath}`);
+  }
+  console.log(`Testing Pion WebRTC checkout: ${checkout}`);
+  await execute("go", ["work", "init", rootDir, checkout], { cwd: directory, env });
+  return { ...env, GOWORK: path.join(directory, "go.work") };
 };
 
 const stop = async (child: ManagedChild) => {
@@ -144,21 +225,20 @@ for (const signal of signals) {
 }
 
 try {
+  const { source, vitestArgs } = parseArguments();
+  if (source && process.env.TEST_SERVER_URL) {
+    throw new Error("Cannot select a WebRTC checkout/ref when TEST_SERVER_URL uses an external server");
+  }
   if (!process.env.TEST_SERVER_URL) {
     buildDir = await mkdtemp(path.join(tmpdir(), "pion-browser-tests-"));
+    const env = await prepareWorkspace(source, buildDir);
     const executable = path.join(buildDir, process.platform === "win32" ? "server.exe" : "server");
-    const build = start("go", ["build", "-o", executable, "."]);
-    const result = await whileRunning(build.result);
-    if (result.code !== 0) {
-      throw exitError("Go build", result);
-    }
+    await execute("go", ["build", "-o", executable, "."], { env });
 
     cancellation.signal.throwIfAborted();
     const id = randomUUID();
     const server = start(executable, [], {
-      ...process.env,
-      TESTSERVER_ADDR: serverAddr,
-      TESTSERVER_ID: id,
+      env: { ...process.env, TESTSERVER_ADDR: serverAddr, TESTSERVER_ID: id },
     });
     void server.result.then((result) => {
       if (!shuttingDown) {
@@ -173,8 +253,8 @@ try {
   const vitest = start(process.execPath, [
     path.join(rootDir, "node_modules", "vitest", "vitest.mjs"),
     "run",
-    ...process.argv.slice(2),
-  ], { ...process.env, VITE_TEST_SERVER_URL: serverUrl });
+    ...vitestArgs,
+  ], { env: { ...process.env, VITE_TEST_SERVER_URL: serverUrl } });
   const result = await whileRunning(vitest.result);
   cancellation.signal.throwIfAborted();
   if (result.error) {

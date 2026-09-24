@@ -1,0 +1,62 @@
+# SPDX-FileCopyrightText: 2026 The Pion community <https://pion.ly>
+# SPDX-License-Identifier: MIT
+
+name: Pion WebRTC browser interoperability tests
+description: Run browser interoperability tests against a Pion WebRTC checkout
+
+inputs:
+  webrtc-path:
+    description: Path to the pion/webrtc checkout, relative to the caller workspace or absolute
+    required: false
+    default: .
+  browser:
+    description: Browser to test (chrome, firefox, edge, or safari)
+    required: false
+    default: chrome
+  headless:
+    description: Run headlessly where supported (Safari always uses a visible window)
+    required: false
+    default: 'true'
+
+runs:
+  using: composite
+  steps:
+    - name: Set up Node.js
+      uses: actions/setup-node@v7
+      with:
+        node-version: '24'
+        package-manager-cache: false
+
+    - name: Set up Go
+      uses: actions/setup-go@v7
+      with:
+        go-version-file: ${{ github.action_path }}/go.mod
+        cache: false
+
+    - name: Install browser test dependencies
+      shell: bash
+      working-directory: ${{ github.action_path }}
+      run: npm ci --no-audit --no-fund
+
+    - name: Enable Safari automation
+      if: runner.os == 'macOS' && inputs.browser == 'safari'
+      shell: bash
+      run: sudo safaridriver --enable
+
+    - name: Run browser interoperability tests
+      shell: bash
+      working-directory: ${{ github.action_path }}
+      env:
+        GOTOOLCHAIN: auto
+        PION_WEBRTC_SOURCE: ${{ inputs.webrtc-path }}
+        TEST_BROWSER: ${{ inputs.browser }}
+        TEST_HEADLESS: ${{ inputs.headless }}
+      run: |
+        node --input-type=module <<'NODE'
+        import path from "node:path";
+        process.env.PION_WEBRTC_SOURCE = path.resolve(
+          process.env.GITHUB_WORKSPACE,
+          process.env.PION_WEBRTC_SOURCE,
+        );
+        await import("./scripts/run-browser-tests.ts");
+        NODE

@@ -1,0 +1,68 @@
+# SPDX-FileCopyrightText: 2026 The Pion community <https://pion.ly>
+# SPDX-License-Identifier: MIT
+
+name: Browser interoperability tests
+
+on:
+  workflow_call:
+    inputs:
+      webrtc-repository:
+        description: Repository containing the WebRTC implementation to test
+        type: string
+        default: pion/webrtc
+      webrtc-ref:
+        description: WebRTC branch, tag, or commit to test
+        type: string
+        default: main
+      interop-repository:
+        description: Repository containing the browser interop suite
+        type: string
+        default: pion/browser-tests
+      interop-ref:
+        description: Browser interop branch, tag, or commit to run
+        type: string
+        default: main
+
+permissions:
+  contents: read
+
+jobs:
+  interop:
+    name: ${{ matrix.browser }} (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            browser: chrome
+          - os: ubuntu-latest
+            browser: firefox
+          - os: windows-latest
+            browser: chrome
+          - os: windows-latest
+            browser: edge
+          - os: macos-latest
+            browser: safari
+    steps:
+      - name: Check out browser interop
+        uses: actions/checkout@v7
+        with:
+          repository: ${{ inputs.interop-repository }}
+          ref: ${{ inputs.interop-ref }}
+          persist-credentials: false
+
+      - name: Check out WebRTC
+        uses: actions/checkout@v7
+        with:
+          repository: ${{ inputs.webrtc-repository }}
+          ref: ${{ inputs.webrtc-ref }}
+          path: webrtc
+          persist-credentials: false
+
+      - name: Run browser interoperability tests
+        uses: ./
+        with:
+          webrtc-path: webrtc
+          browser: ${{ matrix.browser }}
