@@ -101,8 +101,8 @@ describe("browser runner lifecycle", { timeout: 120_000 }, () => {
     marker = path.join(fixture, "vitest-started.json");
     await mkdir(path.join(fixture, "scripts"));
     await mkdir(path.join(fixture, "node_modules", "vitest"), { recursive: true });
-    for (const file of ["scripts/run-browser-tests.ts", "runner.go", "go.mod", "go.sum"]) {
-      await cp(path.join(rootDir, file), path.join(fixture, file));
+    for (const file of ["scripts/run-browser-tests.ts", "runner.go", "internal", "go.mod", "go.sum"]) {
+      await cp(path.join(rootDir, file), path.join(fixture, file), { recursive: true });
     }
     await writeFile(path.join(fixture, "package.json"), '{"type":"module"}\n');
     // Exit the real server after Vitest starts, without adding test hooks to it.

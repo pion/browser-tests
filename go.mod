@@ -4,7 +4,10 @@ go 1.24.0
 
 toolchain go1.27.1
 
-require github.com/pion/webrtc/v4 v4.2.20
+require (
+	github.com/pion/webrtc/v4 v4.2.20
+	github.com/stretchr/testify v1.12.1
+)
 
 require (
 	github.com/google/uuid v1.6.0 // indirect
@@ -24,6 +27,7 @@ require (
 	github.com/pion/transport/v4 v4.1.0 // indirect
 	github.com/pion/turn/v5 v5.1.0 // indirect
 	github.com/wlynxg/anet v0.0.5 // indirect
+	go.yaml.in/yaml/v3 v3.0.5 // indirect
 	golang.org/x/crypto v0.48.0 // indirect
 	golang.org/x/net v0.50.0 // indirect
 	golang.org/x/sys v0.41.0 // indirect
