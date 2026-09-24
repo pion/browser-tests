@@ -35,6 +35,7 @@ export class PionPeer {
   setRemoteDescription(description: RTCSessionDescriptionInit): Promise<void> {
     return this.command("set-remote-description", description);
   }
+  resumeIceGathering(): Promise<void> { return this.command("resume-ice-gathering"); }
   addIceCandidate(candidate: RTCIceCandidateInit): Promise<void> {
     return this.command("add-ice-candidate", candidate);
   }
@@ -84,7 +85,7 @@ export class Interop {
     return pc;
   }
 
-  async pionPeer(options: { behavior?: string; configuration?: RTCConfiguration; iceLite?: boolean } = {}): Promise<PionPeer> {
+  async pionPeer(options: { behavior?: string; configuration?: RTCConfiguration; iceLite?: boolean; pauseIceGathering?: boolean } = {}): Promise<PionPeer> {
     const { id } = await request<{ id: string }>("/peers", "POST", options);
     const peer = new PionPeer(id);
     this.pions.push(peer);

@@ -27,11 +27,13 @@ var behaviors = map[string]behavior{ //nolint:gochecknoglobals
 }
 
 type peer struct {
-	behavior   behavior
-	pc         *webrtc.PeerConnection
-	mu         sync.Mutex
-	candidates []webrtc.ICECandidateInit
-	states     []string
+	behavior        behavior
+	pc              *webrtc.PeerConnection
+	mu              sync.Mutex
+	candidates      []webrtc.ICECandidateInit
+	states          []string
+	pauseGathering  atomic.Bool
+	resumeGathering func()
 }
 
 type Server struct {
@@ -47,6 +49,7 @@ func (s *Server) Close() {
 	defer s.mu.Unlock()
 	for id, session := range s.peers {
 		delete(s.peers, id)
+		session.resumeGathering()
 		_ = session.pc.Close()
 	}
 }
@@ -78,9 +81,10 @@ func reply(res http.ResponseWriter, value any) {
 
 func (s *Server) create(res http.ResponseWriter, req *http.Request) {
 	var body struct {
-		ICELite       bool                 `json:"iceLite"`
-		Behavior      string               `json:"behavior"`
-		Configuration webrtc.Configuration `json:"configuration"`
+		PauseICEGathering bool                 `json:"pauseIceGathering"`
+		ICELite           bool                 `json:"iceLite"`
+		Behavior          string               `json:"behavior"`
+		Configuration     webrtc.Configuration `json:"configuration"`
 	}
 	if !decode(res, req, &body) {
 		return
@@ -94,7 +98,21 @@ func (s *Server) create(res http.ResponseWriter, req *http.Request) {
 
 		return
 	}
+	session := &peer{behavior: selected, candidates: []webrtc.ICECandidateInit{}, states: []string{}}
+	resume := make(chan struct{})
+	session.resumeGathering = sync.OnceFunc(func() { close(resume) })
 	settings := webrtc.SettingEngine{}
+	if body.PauseICEGathering {
+		// CreateOffer initializes the ICE agent before gathering starts. Only
+		// block interface enumeration once SetLocalDescription starts gathering.
+		settings.SetInterfaceFilter(func(string) bool {
+			if session.pauseGathering.Load() {
+				<-resume
+			}
+
+			return true
+		})
+	}
 	settings.SetLite(body.ICELite)
 	pc, err := webrtc.NewAPI(webrtc.WithSettingEngine(settings)).NewPeerConnection(body.Configuration)
 	if err != nil {
@@ -102,7 +120,7 @@ func (s *Server) create(res http.ResponseWriter, req *http.Request) {
 
 		return
 	}
-	session := &peer{behavior: selected, pc: pc, candidates: []webrtc.ICECandidateInit{}, states: []string{}}
+	session.pc = pc
 	pc.OnICECandidate(func(c *webrtc.ICECandidate) {
 		if c != nil {
 			session.mu.Lock()
@@ -144,6 +162,7 @@ func (s *Server) remove(res http.ResponseWriter, req *http.Request) {
 	delete(s.peers, req.PathValue("id"))
 	s.mu.Unlock()
 	if value != nil {
+		value.resumeGathering()
 		_ = value.pc.Close()
 	}
 	res.WriteHeader(http.StatusNoContent)
@@ -194,10 +213,13 @@ func (s *Server) operate(res http.ResponseWriter, req *http.Request) {
 			return
 		}
 		if req.PathValue("operation") == "set-local-description" {
+			session.pauseGathering.Store(true)
 			err = session.pc.SetLocalDescription(description)
 		} else {
 			err = session.pc.SetRemoteDescription(description)
 		}
+	case "resume-ice-gathering":
+		session.resumeGathering()
 	case "add-ice-candidate":
 		var candidate webrtc.ICECandidateInit
 		if !decode(res, req, &candidate) {

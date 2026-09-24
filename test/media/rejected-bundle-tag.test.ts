@@ -50,3 +50,41 @@ for (const trickle of [false, true]) {
     });
   }
 }
+
+test("trickle candidates follow the changed BUNDLE tag after the answer", async ({ interop }) => {
+  const browser = interop.browserPeer();
+  const pion = await interop.pionPeer({
+    behavior: "datachannel-echo", iceLite: true, pauseIceGathering: true,
+  });
+  await pion.addTransceiver("video", "recvonly");
+  await pion.addTransceiver("audio", "recvonly");
+  const incoming = interop.event<RTCDataChannelEvent>(browser, "datachannel");
+  await pion.createDataChannel("late-trickle");
+  const offer = await pion.createOffer();
+  await pion.setLocalDescription(offer);
+  expect(offer.sdp).toMatch(/^a=group:BUNDLE 0 1 2\r?$/m);
+  expect(offer.sdp).not.toMatch(/^a=candidate:/m);
+  await browser.setRemoteDescription(unsupportedVideo(offer));
+  const answer = await browser.createAnswer();
+  await browser.setLocalDescription(answer);
+  expect(answer.sdp).toMatch(/^m=video 0 /m);
+  expect(answer.sdp).toMatch(/^a=group:BUNDLE 1 2\r?$/m);
+  answer.sdp = answer.sdp!.replace(/^a=(?:candidate:.*|end-of-candidates)\r?\n/gm, "");
+  await pion.setRemoteDescription(answer);
+  expect((await pion.snapshot()).candidates).toEqual([]);
+  await pion.resumeIceGathering();
+  await interop.localDescription(pion);
+  const { candidates } = await pion.snapshot();
+  expect(candidates.length).toBeGreaterThan(0);
+  for (const candidate of candidates) {
+    expect.soft(candidate.sdpMid).toBe("1");
+    expect.soft(candidate.sdpMLineIndex).toBe(1);
+    await browser.addIceCandidate(candidate);
+  }
+  const { channel } = await incoming;
+  await interop.waitForOpen(channel);
+  const reply = interop.nextMessage(channel);
+  channel.send("late trickle on the accepted bundle");
+  expect(await reply).toBe("late trickle on the accepted bundle");
+  expect(browser.connectionState).toBe("connected");
+});
