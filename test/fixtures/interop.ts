@@ -41,6 +41,9 @@ export class PionPeer {
   createDataChannel(label: string, options: RTCDataChannelInit = {}): Promise<void> {
     return this.command("create-data-channel", { label, options });
   }
+  addTransceiver(kind: "audio" | "video", direction: RTCRtpTransceiverDirection = "sendrecv"): Promise<void> {
+    return this.command("add-transceiver", { kind, direction });
+  }
   snapshot(): Promise<Snapshot> { return request(`/peers/${this.id}`); }
   stats(): Promise<Record<string, unknown>> { return request(`/peers/${this.id}/stats`); }
   close(): Promise<void> { return request(`/peers/${this.id}`, "DELETE"); }
@@ -81,7 +84,7 @@ export class Interop {
     return pc;
   }
 
-  async pionPeer(options: { behavior?: string; configuration?: RTCConfiguration } = {}): Promise<PionPeer> {
+  async pionPeer(options: { behavior?: string; configuration?: RTCConfiguration; iceLite?: boolean } = {}): Promise<PionPeer> {
     const { id } = await request<{ id: string }>("/peers", "POST", options);
     const peer = new PionPeer(id);
     this.pions.push(peer);

@@ -78,6 +78,7 @@ func reply(res http.ResponseWriter, value any) {
 
 func (s *Server) create(res http.ResponseWriter, req *http.Request) {
 	var body struct {
+		ICELite       bool                 `json:"iceLite"`
 		Behavior      string               `json:"behavior"`
 		Configuration webrtc.Configuration `json:"configuration"`
 	}
@@ -93,7 +94,9 @@ func (s *Server) create(res http.ResponseWriter, req *http.Request) {
 
 		return
 	}
-	pc, err := webrtc.NewPeerConnection(body.Configuration)
+	settings := webrtc.SettingEngine{}
+	settings.SetLite(body.ICELite)
+	pc, err := webrtc.NewAPI(webrtc.WithSettingEngine(settings)).NewPeerConnection(body.Configuration)
 	if err != nil {
 		http.Error(res, err.Error(), http.StatusBadRequest)
 
@@ -201,6 +204,18 @@ func (s *Server) operate(res http.ResponseWriter, req *http.Request) {
 			return
 		}
 		err = session.pc.AddICECandidate(candidate)
+	case "add-transceiver":
+		var body struct {
+			Kind      string `json:"kind"`
+			Direction string `json:"direction"`
+		}
+		if !decode(res, req, &body) {
+			return
+		}
+		kind := webrtc.NewRTPCodecType(body.Kind)
+		_, err = session.pc.AddTransceiverFromKind(kind, webrtc.RTPTransceiverInit{
+			Direction: webrtc.NewRTPTransceiverDirection(body.Direction),
+		})
 	case "create-data-channel":
 		var body struct {
 			Label   string                 `json:"label"`
