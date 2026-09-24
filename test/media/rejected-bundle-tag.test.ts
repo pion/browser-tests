@@ -88,3 +88,45 @@ test("trickle candidates follow the changed BUNDLE tag after the answer", async 
   expect(await reply).toBe("late trickle on the accepted bundle");
   expect(browser.connectionState).toBe("connected");
 });
+
+for (const iceRestart of [false, true]) {
+  test(`renegotiation after rejecting the BUNDLE tag preserves connectivity (iceRestart=${iceRestart})`, async ({ interop }) => {
+    const browser = interop.browserPeer();
+    const pion = await interop.pionPeer({ behavior: "datachannel-echo", iceLite: true });
+    await pion.addTransceiver("video", "recvonly");
+    await pion.addTransceiver("audio", "recvonly");
+    const incoming = interop.event<RTCDataChannelEvent>(browser, "datachannel");
+    await pion.createDataChannel("renegotiated-bundle");
+    await pion.setLocalDescription(await pion.createOffer());
+    const offer = await interop.localDescription(pion);
+    await browser.setRemoteDescription(offer);
+    const answer = await browser.createAnswer();
+    answer.sdp = answer.sdp!
+      .replace(/^m=video \d+ /m, "m=video 0 ")
+      .replace(/^a=group:BUNDLE 0 1 2\r?$/m, "a=group:BUNDLE 1 2\r");
+    await browser.setLocalDescription(answer);
+    expect(answer.sdp).toMatch(/^m=video 0 /m);
+    expect(answer.sdp).toMatch(/^a=group:BUNDLE 1 2\r?$/m);
+    await pion.setRemoteDescription(answer);
+    const { channel } = await incoming;
+    await interop.waitForOpen(channel);
+    const firstReply = interop.nextMessage(channel);
+    channel.send("before renegotiation");
+    expect(await firstReply).toBe("before renegotiation");
+
+    await pion.setLocalDescription(await pion.createOffer({ iceRestart }));
+    const reoffer = await interop.localDescription(pion);
+    const firstUfrag = offer.sdp!.match(/^a=ice-ufrag:(\S+)/m)![1];
+    const nextUfrag = reoffer.sdp!.match(/^a=ice-ufrag:(\S+)/m)![1];
+    if (iceRestart) expect(nextUfrag).not.toBe(firstUfrag);
+    else expect(nextUfrag).toBe(firstUfrag);
+    await browser.setRemoteDescription(reoffer);
+    const reanswer = await browser.createAnswer();
+    await browser.setLocalDescription(reanswer);
+    await pion.setRemoteDescription(reanswer);
+    const secondReply = interop.nextMessage(channel);
+    channel.send("after renegotiation");
+    expect(await secondReply).toBe("after renegotiation");
+    expect(browser.connectionState).toBe("connected");
+  });
+}
