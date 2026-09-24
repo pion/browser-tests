@@ -42,6 +42,7 @@ export class PionPeer {
     return this.command("create-data-channel", { label, options });
   }
   snapshot(): Promise<Snapshot> { return request(`/peers/${this.id}`); }
+  stats(): Promise<Record<string, unknown>> { return request(`/peers/${this.id}/stats`); }
   close(): Promise<void> { return request(`/peers/${this.id}`, "DELETE"); }
 }
 
@@ -63,10 +64,15 @@ export class Interop {
   private pions: PionPeer[] = [];
   private abort = new AbortController();
   private history = new Map<RTCPeerConnection, string[]>();
+  private incomingOpen = new WeakMap<RTCDataChannel, { peer: RTCPeerConnection; opened: Promise<Event> }>();
 
   browserPeer(configuration: RTCConfiguration = {}): RTCPeerConnection {
     const pc = new RTCPeerConnection(configuration);
     this.browsers.push(pc);
+    // Incoming channels can report "open" during the datachannel event,
+    pc.addEventListener("datachannel", ({ channel }) => {
+      this.incomingOpen.set(channel, { peer: pc, opened: this.event(channel, "open") });
+    }, { signal: this.abort.signal });
     const events: string[] = [];
     this.history.set(pc, events);
     for (const event of ["connectionstatechange", "iceconnectionstatechange", "signalingstatechange"]) {
@@ -109,6 +115,23 @@ export class Interop {
   }
 
   async waitForOpen(channel: RTCDataChannel): Promise<void> {
+    const incoming = this.incomingOpen.get(channel);
+    if (incoming) {
+      await incoming.opened;
+      const deadline = Date.now() + timeoutMs;
+      while (true) {
+        this.abort.signal.throwIfAborted();
+        const report = await incoming.peer.getStats();
+        const native = Array.from(report.values()).find(stat =>
+          stat.type === "data-channel" && stat.dataChannelIdentifier === channel.id);
+        if (!native || native.state === "open") break;
+        if (native.state === "closed" || native.state === "closing") throw new Error("Data channel is closed");
+        if (Date.now() >= deadline) throw new Error("Timed out waiting for native data channel open");
+        await new Promise(resolve => setTimeout(resolve, 25));
+      }
+      if (channel.readyState !== "open") throw new Error("Data channel is no longer open");
+      return;
+    }
     if (channel.readyState === "open") return;
     if (channel.readyState === "closed") throw new Error("Data channel is closed");
     await this.event(channel, "open");
@@ -144,11 +167,17 @@ export class Interop {
 
   async diagnostics(): Promise<unknown> {
     return {
-      browsers: this.browsers.map(pc => ({
+      userAgent: navigator.userAgent,
+      browsers: await Promise.all(this.browsers.map(async pc => ({
         localDescription: pc.localDescription, remoteDescription: pc.remoteDescription,
         states: this.history.get(pc),
-      })),
-      pions: await Promise.all(this.pions.map(async peer => ({ id: peer.id, snapshot: await peer.snapshot().catch(String) }))),
+        stats: await pc.getStats().then(report => Array.from(report.values())).catch(String),
+      }))),
+      pions: await Promise.all(this.pions.map(async peer => ({
+        id: peer.id,
+        snapshot: await peer.snapshot().catch(String),
+        stats: await peer.stats().catch(String),
+      }))),
     };
   }
 

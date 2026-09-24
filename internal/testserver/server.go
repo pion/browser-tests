@@ -55,6 +55,7 @@ func (s *Server) Register(mux *http.ServeMux) {
 	mux.HandleFunc("POST /peers", s.create)
 	mux.HandleFunc("POST /peers/{id}/{operation}", s.operate)
 	mux.HandleFunc("GET /peers/{id}", s.snapshot)
+	mux.HandleFunc("GET /peers/{id}/stats", s.stats)
 	mux.HandleFunc("DELETE /peers/{id}", s.remove)
 }
 
@@ -158,6 +159,14 @@ func (s *Server) snapshot(res http.ResponseWriter, req *http.Request) {
 		"connectionState":   session.pc.ConnectionState().String(), "signalingState": session.pc.SignalingState().String(),
 		"candidates": session.candidates, "states": session.states,
 	})
+}
+
+func (s *Server) stats(res http.ResponseWriter, req *http.Request) {
+	session := s.lookup(res, req)
+	if session == nil {
+		return
+	}
+	reply(res, session.pc.GetStats())
 }
 
 func (s *Server) operate(res http.ResponseWriter, req *http.Request) {
