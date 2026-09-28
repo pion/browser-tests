@@ -8,6 +8,7 @@ const timeoutMs = 10_000;
 const serverURL = import.meta.env.VITE_TEST_SERVER_URL ?? "http://127.0.0.1:38481";
 
 type Snapshot = {
+  receiverTracks: Record<string, number>;
   localDescription: RTCSessionDescriptionInit | null;
   remoteDescription: RTCSessionDescriptionInit | null;
   iceGatheringState: RTCIceGatheringState;
@@ -35,11 +36,16 @@ export class PionPeer {
   setRemoteDescription(description: RTCSessionDescriptionInit): Promise<void> {
     return this.command("set-remote-description", description);
   }
+  resumeIceGathering(): Promise<void> { return this.command("resume-ice-gathering"); }
   addIceCandidate(candidate: RTCIceCandidateInit): Promise<void> {
     return this.command("add-ice-candidate", candidate);
   }
   createDataChannel(label: string, options: RTCDataChannelInit = {}): Promise<void> {
     return this.command("create-data-channel", { label, options });
+  }
+  addTrack(kind: "audio" | "video"): Promise<void> { return this.command("add-track", { kind }); }
+  addTransceiver(kind: "audio" | "video", direction: RTCRtpTransceiverDirection = "sendrecv"): Promise<void> {
+    return this.command("add-transceiver", { kind, direction });
   }
   snapshot(): Promise<Snapshot> { return request(`/peers/${this.id}`); }
   stats(): Promise<Record<string, unknown>> { return request(`/peers/${this.id}/stats`); }
@@ -81,7 +87,7 @@ export class Interop {
     return pc;
   }
 
-  async pionPeer(options: { behavior?: string; configuration?: RTCConfiguration } = {}): Promise<PionPeer> {
+  async pionPeer(options: { behavior?: string; configuration?: RTCConfiguration; iceLite?: boolean; pauseIceGathering?: boolean; audioOnly?: boolean } = {}): Promise<PionPeer> {
     const { id } = await request<{ id: string }>("/peers", "POST", options);
     const peer = new PionPeer(id);
     this.pions.push(peer);
