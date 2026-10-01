@@ -30,6 +30,12 @@ for (const signaling of ["SDP", "addIceCandidate"] as const) {
         ? stripped + candidates.map(candidate => `a=${candidate.candidate}\r\n`).join("")
         : stripped,
     });
+    // Firefox only registers its mDNS names after receiving an answer:
+    // https://bugzilla.mozilla.org/show_bug.cgi?id=1691189
+    // CreateAnswer does not start Pion's gather. With no Pion candidates yet,
+    const answer = await pion.createAnswer();
+    expect(answer.sdp).not.toMatch(/^a=candidate:/m);
+    await browser.setRemoteDescription(answer);
     if (signaling === "addIceCandidate") {
       for (const candidate of candidates) await pion.addIceCandidate(candidate.toJSON());
     }
@@ -50,8 +56,11 @@ for (const signaling of ["SDP", "addIceCandidate"] as const) {
     expect(beforeGather.localDescription).toBeNull();
     expect(beforeGather.candidates).toEqual([]);
 
-    await pion.setLocalDescription(await pion.createAnswer());
-    await browser.setRemoteDescription(await interop.localDescription(pion));
+    await pion.setLocalDescription(answer);
+    await interop.localDescription(pion);
+    for (const candidate of (await pion.snapshot()).candidates) {
+      await browser.addIceCandidate(candidate);
+    }
     await interop.waitForOpen(channel);
     const message = `resolved before gathering via ${signaling}`;
     const reply = interop.nextMessage(channel);
