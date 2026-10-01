@@ -8,8 +8,9 @@ import { test, expect } from "../fixtures/interop";
 // before SetLocalDescription starts Pion's first gather. Connectivity alone
 // would miss dropped candidates because peer-reflexive discovery can recover.
 for (const signaling of ["SDP", "addIceCandidate"] as const) {
-  test(`resolves browser mDNS candidates before gathering (${signaling})`, async ({ interop, skip }) => {
-    const browser = interop.browserPeer({ iceServers: [] });
+  test.for([0, 1, 2])(`resolves browser mDNS candidates before gathering (${signaling}, pool=%i)`, async (iceCandidatePoolSize, { interop, skip }) => {
+    if (/Firefox\//.test(navigator.userAgent)) skip("Firefox excluded from mDNS candidate-pool coverage");
+    const browser = interop.browserPeer({ iceServers: [], iceCandidatePoolSize });
     const channel = browser.createDataChannel("mdns-before-gather");
     const candidates: RTCIceCandidate[] = [];
     browser.addEventListener("icecandidate", ({ candidate }) => {
