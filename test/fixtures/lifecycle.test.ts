@@ -45,3 +45,19 @@ test("cleans up all peers and pending listeners after a setup failure", async ()
   await expect(pion.snapshot()).rejects.toThrow("404");
   await scope.close();
 });
+
+test("audio capture restores microphone permission after cleanup", async ({ skip }) => {
+  if (!/(?:Chrome|Chromium)\//.test(navigator.userAgent)) skip("Chromium permission control");
+  const { mediaSource } = await import("./media");
+  const permission = await navigator.permissions.query({ name: "microphone" as PermissionName });
+  expect(permission.state).toBe("prompt");
+  const media = await mediaSource("audio");
+  try {
+    await expect.poll(() => permission.state).toBe("granted");
+    expect(media.stream.getAudioTracks()[0].readyState).toBe("live");
+  } finally {
+    await media.close();
+  }
+  expect(media.stream.getAudioTracks()[0].readyState).toBe("ended");
+  await expect.poll(() => permission.state).toBe("prompt");
+});
