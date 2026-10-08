@@ -2,7 +2,7 @@ module github.com/pion/browsertests
 
 go 1.24.0
 
-toolchain go1.27.1
+toolchain go1.27.2
 
 require (
 	github.com/pion/logging v0.2.4
