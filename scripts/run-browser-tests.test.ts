@@ -48,6 +48,7 @@ const launch = (port: number, extraEnv: NodeJS.ProcessEnv = {}) => {
   const env = { ...process.env };
   delete env.TEST_SERVER_URL;
   delete env.PION_WEBRTC_SOURCE;
+  delete env.PION_INTERCEPTOR_SOURCE;
   const child = spawn(process.execPath, ["scripts/run-browser-tests.ts"], {
     cwd: fixture,
     env: {

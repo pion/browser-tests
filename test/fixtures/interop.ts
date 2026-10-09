@@ -18,12 +18,59 @@ type Snapshot = {
   states: string[];
 };
 
+export type ObservedRTP = {
+  ssrc: number;
+  sequenceNumber: number;
+  timestamp: number;
+  payloadType: number;
+  payload: string;
+  padding?: boolean;
+  paddingSize?: number;
+  csrc?: number[];
+  extensions?: { id: number; payload: string }[];
+  headerSize?: number;
+  packetSize?: number;
+};
+
+export type RTPObservations = {
+  totals: Record<"source" | "outbound" | "inbound" | "inboundOriginal" | "application" | "droppedOutbound" | "inboundRED" | "outboundRED", number>;
+  summaries: { source: Record<string, RTPSummary>; application: Record<string, RTPSummary> };
+  activeMediaReaders: number; activeMediaWriters: number;
+  inbound: ObservedRTP[];
+  outbound: ObservedRTP[];
+  application: ObservedRTP[];
+  source: ObservedRTP[];
+  droppedOutbound: ObservedRTP[];
+  errors: string[];
+  injectedErrors: string[];
+  truncated: boolean;
+  sourceDone: boolean;
+  drained: boolean;
+  inboundOriginal: ObservedRTP[];
+  inboundActions: { kind: "hold" | "release" | "duplicate" | "drop" | "mutate"; ordinal: number }[];
+};
+
+export type REDSourceOptions = {
+  stream?: boolean;
+  tracks?: number; packets?: number; trailers?: number; sequenceStart?: number; timestampStart?: number; intervalMs?: number;
+  packetOverrides?: { index: number; sequenceNumber?: number; timestamp?: number; payload?: string; opusFrames?: number;
+    csrc?: number[]; extensions?: { id: number; payload: string }[]; paddingSize?: number }[];
+};
+
+export type RTPSummary = { count: number; sha256: string; lastSequenceNumber: number; lastTimestamp: number };
+export type REDImpairmentOptions = { outboundDrop?: number[]; inboundOrder?: number[];
+  inboundPayloads?: { index: number; payload: string; expectedError: string }[] };
+
+export type AudioCodecOrder = "red-first" | "opus-first" | "opus-only";
+
 export class PionPeer {
   readonly id: string;
   readonly certificateFingerprints: string[];
-  constructor(id: string, certificateFingerprints: string[] = []) {
+  readonly opusRED: boolean;
+  constructor(id: string, certificateFingerprints: string[] = [], opusRED = false) {
     this.id = id;
     this.certificateFingerprints = certificateFingerprints;
+    this.opusRED = opusRED;
   }
 
   private async command<T>(operation: string, body: unknown = {}): Promise<T> {
@@ -46,8 +93,11 @@ export class PionPeer {
   createDataChannel(label: string, options: RTCDataChannelInit = {}): Promise<void> {
     return this.command("create-data-channel", { label, options });
   }
+  replaceAudioTrack(index = 0): Promise<void> { return this.command("replace-red-audio", { index }); }
+  closeMedia(): Promise<RTPObservations> { return this.command("close-red-media"); }
   snapshot(): Promise<Snapshot> { return request(`/peers/${this.id}`); }
   stats(): Promise<Record<string, unknown>> { return request(`/peers/${this.id}/stats`); }
+  rtp(): Promise<RTPObservations> { return request(`/peers/${this.id}/rtp`); }
   close(): Promise<void> { return request(`/peers/${this.id}`, "DELETE"); }
 }
 
@@ -90,9 +140,11 @@ export class Interop {
     return pc;
   }
 
-  async pionPeer(options: { behavior?: string; configuration?: RTCConfiguration; certificateCount?: number } = {}): Promise<PionPeer> {
+  async pionPeer(options: { behavior?: string; configuration?: RTCConfiguration; certificateCount?: number; opusRED?: boolean; startWithRED?: boolean;
+    opusREDPayloadTypes?: { opus: number; red: number }; audioCodecOrder?: AudioCodecOrder;
+    redSource?: REDSourceOptions; redImpairment?: REDImpairmentOptions; observationLimit?: number; redMaxPacketSize?: number } = {}): Promise<PionPeer> {
     const { id, certificateFingerprints } = await request<{ id: string; certificateFingerprints?: string[] }>("/peers", "POST", options);
-    const peer = new PionPeer(id, certificateFingerprints);
+    const peer = new PionPeer(id, certificateFingerprints, options.opusRED);
     this.pions.push(peer);
     return peer;
   }
@@ -186,6 +238,7 @@ export class Interop {
         id: peer.id,
         snapshot: await peer.snapshot().catch(String),
         stats: await peer.stats().catch(String),
+        ...(peer.opusRED ? { rtp: await peer.rtp().catch(String) } : {}),
       }))),
     };
   }

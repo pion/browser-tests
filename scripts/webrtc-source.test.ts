@@ -40,6 +40,7 @@ const run = async (args: string[], extraEnv: NodeJS.ProcessEnv = {}) => {
   const env = { ...process.env };
   delete env.TEST_SERVER_URL;
   delete env.PION_WEBRTC_SOURCE;
+  delete env.PION_INTERCEPTOR_SOURCE;
   return exec(process.execPath, ["scripts/run-browser-tests.ts", ...args], {
     cwd: fixture,
     timeout: 120_000,

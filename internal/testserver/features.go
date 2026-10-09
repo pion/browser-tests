@@ -36,5 +36,5 @@ func features() map[string]featureSupport {
 		result.Reason = "This WebRTC build has no OfferOptions.DTLSRestart"
 	}
 
-	return map[string]featureSupport{"dtlsRestart": result}
+	return map[string]featureSupport{"dtlsRestart": result, "opusRED": opusREDSupport()}
 }

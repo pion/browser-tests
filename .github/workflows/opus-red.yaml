@@ -1,0 +1,237 @@
+# SPDX-FileCopyrightText: 2026 The Pion community <https://pion.ly>
+# SPDX-License-Identifier: MIT
+
+name: Opus RED validation
+
+on:
+  workflow_dispatch:
+    inputs:
+      webrtc-repository:
+        description: Repository containing WebRTC
+        type: string
+        default: pion/webrtc
+      webrtc-ref:
+        description: WebRTC checkout ref
+        type: string
+        default: refs/pull/3526/head
+      interceptor-repository:
+        description: Repository containing interceptor
+        type: string
+        default: pion/interceptor
+      interceptor-ref:
+        description: Interceptor checkout ref
+        type: string
+        default: refs/pull/454/head
+      interop-repository:
+        description: Browser test repository (empty uses this repository)
+        type: string
+        default: ''
+      interop-ref:
+        description: Browser test ref (empty uses this workflow's ref)
+        type: string
+        default: ''
+      run-stress:
+        description: Run 20 recovery repetitions and accelerated wrap validation in Chrome
+        type: boolean
+        default: false
+      run-soak:
+        description: Run the 30-minute Chrome audio soak
+        type: boolean
+        default: false
+  workflow_call:
+    inputs:
+      webrtc-repository:
+        description: Repository containing WebRTC
+        type: string
+        default: pion/webrtc
+      webrtc-ref:
+        description: WebRTC checkout ref
+        type: string
+        default: refs/pull/3526/head
+      interceptor-repository:
+        description: Repository containing interceptor
+        type: string
+        default: pion/interceptor
+      interceptor-ref:
+        description: Interceptor checkout ref
+        type: string
+        default: refs/pull/454/head
+      interop-repository:
+        description: Repository containing the browser tests
+        type: string
+        required: true
+      interop-ref:
+        description: Browser test checkout ref
+        type: string
+        required: true
+      run-stress:
+        description: Run 20 recovery repetitions and accelerated wrap validation in Chrome
+        type: boolean
+        default: false
+      run-soak:
+        description: Run the 30-minute Chrome audio soak
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+jobs:
+  quick:
+    uses: ./.github/workflows/browser-tests.yaml
+    with:
+      webrtc-repository: ${{ inputs.webrtc-repository }}
+      webrtc-ref: ${{ inputs.webrtc-ref }}
+      interceptor-repository: ${{ inputs.interceptor-repository }}
+      interceptor-ref: ${{ inputs.interceptor-ref }}
+      interop-repository: ${{ inputs.interop-repository || github.repository }}
+      interop-ref: ${{ inputs.interop-ref || github.sha }}
+      require-opus-red: pion
+      opus-red-suite: quick
+      junit-path: .vitest-attachments/opus-red-quick.xml
+
+  extended:
+    if: inputs.run-stress || inputs.run-soak
+    name: ${{ matrix.suite }} (Chrome)
+    runs-on: ubuntu-latest
+    timeout-minutes: ${{ matrix.suite == 'soak' && 45 || 15 }}
+    strategy:
+      fail-fast: false
+      matrix:
+        suite: ${{ fromJSON(inputs.run-stress && inputs.run-soak && '["stress","soak"]' || inputs.run-stress && '["stress"]' || '["soak"]') }}
+    steps:
+      - name: Check out browser interop
+        uses: actions/checkout@v7
+        with:
+          repository: ${{ inputs.interop-repository || github.repository }}
+          ref: ${{ inputs.interop-ref || github.sha }}
+          persist-credentials: false
+
+      - name: Check out WebRTC
+        uses: actions/checkout@v7
+        with:
+          repository: ${{ inputs.webrtc-repository }}
+          ref: ${{ inputs.webrtc-ref }}
+          path: webrtc
+          persist-credentials: false
+
+      - name: Check out interceptor
+        uses: actions/checkout@v7
+        with:
+          repository: ${{ inputs.interceptor-repository }}
+          ref: ${{ inputs.interceptor-ref }}
+          path: interceptor
+          persist-credentials: false
+
+      - name: Run extended Chrome validation
+        uses: ./
+        with:
+          webrtc-path: webrtc
+          interceptor-path: interceptor
+          browser: chrome
+          require-opus-red: '1'
+          opus-red-suite: ${{ matrix.suite }}
+          junit-path: .vitest-attachments/opus-red-${{ matrix.suite }}.xml
+
+      - name: Upload extended browser evidence
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: opus-red-${{ matrix.suite }}-chrome
+          path: |
+            .vitest-attachments/
+            test/**/__screenshots__/
+            stress/**/__screenshots__/
+          include-hidden-files: true
+          if-no-files-found: warn
+
+  upstream:
+    name: Upstream Go (${{ matrix.check }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        check: [targeted, full, race, fuzz]
+    env:
+      GOTOOLCHAIN: auto
+      RED_GO_CHECK: ${{ matrix.check }}
+    steps:
+      - name: Check out browser interop
+        uses: actions/checkout@v7
+        with:
+          repository: ${{ inputs.interop-repository || github.repository }}
+          ref: ${{ inputs.interop-ref || github.sha }}
+          persist-credentials: false
+
+      - name: Check out WebRTC
+        uses: actions/checkout@v7
+        with:
+          repository: ${{ inputs.webrtc-repository }}
+          ref: ${{ inputs.webrtc-ref }}
+          path: webrtc
+          persist-credentials: false
+
+      - name: Check out interceptor
+        uses: actions/checkout@v7
+        with:
+          repository: ${{ inputs.interceptor-repository }}
+          ref: ${{ inputs.interceptor-ref }}
+          path: interceptor
+          persist-credentials: false
+
+      - name: Set up Go
+        uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+          cache: false
+
+      - name: Prepare temporary Go workspace
+        id: workspace
+        shell: bash
+        env:
+          GOWORK: 'off'
+        run: |
+          red_workspace=$(mktemp -d "$RUNNER_TEMP/opus-red-go.XXXXXX")
+          (
+            cd "$red_workspace"
+            go work init "$GITHUB_WORKSPACE" "$GITHUB_WORKSPACE/webrtc" "$GITHUB_WORKSPACE/interceptor"
+          )
+          echo "GOWORK=$red_workspace/go.work" >> "$GITHUB_ENV"
+          mkdir -p .vitest-attachments
+          git -C webrtc rev-parse HEAD
+          git -C interceptor rev-parse HEAD
+
+      - name: Test WebRTC
+        if: matrix.check != 'fuzz'
+        shell: bash
+        run: |
+          case "$RED_GO_CHECK" in
+            targeted) args=(-count=1 -run 'RED|OpusRED' . ./internal/fmtp) ;;
+            full) args=(-count=1 ./...) ;;
+            race) args=(-race -count=1 -run 'RED|OpusRED' . ./internal/fmtp) ;;
+          esac
+          go -C webrtc test "${args[@]}" 2>&1 | tee ".vitest-attachments/upstream-$RED_GO_CHECK-webrtc.log"
+
+      - name: Test interceptor
+        if: always() && steps.workspace.outcome == 'success'
+        shell: bash
+        run: |
+          case "$RED_GO_CHECK" in
+            targeted) args=(-count=1 ./pkg/red) ;;
+            full) args=(-count=1 ./...) ;;
+            race) args=(-race -count=1 ./pkg/red) ;;
+            fuzz) args=(-run '^$' -fuzz '^FuzzPayloadUnmarshal$' -fuzztime=60s ./pkg/red) ;;
+          esac
+          go -C interceptor test "${args[@]}" 2>&1 | tee ".vitest-attachments/upstream-$RED_GO_CHECK-interceptor.log"
+
+      - name: Upload upstream evidence
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: opus-red-upstream-${{ matrix.check }}
+          path: |
+            .vitest-attachments/upstream-*.log
+            interceptor/pkg/red/testdata/fuzz/
+          include-hidden-files: true
+          if-no-files-found: warn

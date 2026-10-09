@@ -16,6 +16,7 @@ vendor/
 node_modules/
 .vitest-attachments/
 test/**/__screenshots__/
+stress/**/__screenshots__/
 
 ### Files ###
 #############

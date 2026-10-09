@@ -9,6 +9,10 @@ inputs:
     description: Path to the pion/webrtc checkout, relative to the caller workspace or absolute
     required: false
     default: .
+  interceptor-path:
+    description: Optional pion/interceptor checkout, relative to the caller workspace or absolute
+    required: false
+    default: ''
   browser:
     description: Browser to test (chrome, firefox, edge, or safari)
     required: false
@@ -17,6 +21,18 @@ inputs:
     description: Run headlessly where supported (Safari always uses a visible window)
     required: false
     default: 'true'
+  require-opus-red:
+    description: RED requirement mode (empty, pion, or 1 for Pion and browser directions)
+    required: false
+    default: ''
+  opus-red-suite:
+    description: Optional RED selection (quick, stress, or soak)
+    required: false
+    default: ''
+  junit-path:
+    description: Optional JUnit XML output path, relative to the caller workspace or absolute
+    required: false
+    default: ''
 
 runs:
   using: composite
@@ -61,12 +77,58 @@ runs:
         PION_WEBRTC_SOURCE: ${{ inputs.webrtc-path }}
         TEST_BROWSER: ${{ inputs.browser }}
         TEST_HEADLESS: ${{ inputs.headless }}
+        RED_INTERCEPTOR_PATH: ${{ inputs.interceptor-path }}
+        RED_REQUIRE_MODE: ${{ inputs.require-opus-red }}
+        RED_SUITE: ${{ inputs.opus-red-suite }}
+        RED_JUNIT_PATH: ${{ inputs.junit-path }}
       run: |
         node --input-type=module <<'NODE'
+        import { execFileSync } from "node:child_process";
         import path from "node:path";
         process.env.PION_WEBRTC_SOURCE = path.resolve(
           process.env.GITHUB_WORKSPACE,
           process.env.PION_WEBRTC_SOURCE,
         );
+        if (process.env.RED_INTERCEPTOR_PATH) {
+          process.env.PION_INTERCEPTOR_SOURCE = path.resolve(
+            process.env.GITHUB_WORKSPACE,
+            process.env.RED_INTERCEPTOR_PATH,
+          );
+        }
+        for (const [name, checkout] of [["WebRTC", process.env.PION_WEBRTC_SOURCE], ["interceptor", process.env.PION_INTERCEPTOR_SOURCE]]) {
+          if (!checkout) continue;
+          let revision = "unavailable (no Git checkout)";
+          try {
+            revision = execFileSync("git", ["-C", checkout, "rev-parse", "HEAD"], {
+              encoding: "utf8", stdio: ["ignore", "pipe", "pipe"],
+            }).trim();
+          } catch {}
+          console.log(`Pion ${name} source revision: ${revision}`);
+        }
+        const required = process.env.RED_REQUIRE_MODE;
+        if (!["", "pion", "1"].includes(required)) throw new Error("Invalid require-opus-red mode");
+        if (required) process.env.VITE_REQUIRE_OPUS_RED = required;
+        const args = [];
+        switch (process.env.RED_SUITE) {
+          case "": break;
+          case "quick":
+            args.push("test/media/opus-red");
+            break;
+          case "stress":
+            process.env.VITE_OPUS_RED_STRESS = "1";
+            args.push("stress/opus-red-stress.test.ts");
+            break;
+          case "soak":
+            process.env.VITE_OPUS_RED_SOAK = "1";
+            args.push("stress/opus-red-soak.test.ts");
+            break;
+          default: throw new Error("Invalid opus-red-suite selection");
+        }
+        if (process.env.RED_SUITE) args.push("--browser.fileParallelism=false", "--retry=0");
+        if (process.env.RED_JUNIT_PATH) {
+          args.push("--reporter=default", "--reporter=junit", "--outputFile.junit",
+            path.resolve(process.env.GITHUB_WORKSPACE, process.env.RED_JUNIT_PATH));
+        }
+        process.argv = [process.execPath, "scripts/run-browser-tests.ts", ...args];
         await import("./scripts/run-browser-tests.ts");
         NODE

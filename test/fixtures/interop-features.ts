@@ -11,6 +11,12 @@ export function interopFeatures(loadPionFeatures: () => Promise<Record<string, F
       const features = await loadPionFeatures();
       return features.dtlsRestart ?? { supported: false, reason: "Server does not advertise dtlsRestart" };
     },
+    "pion.opusRED": async () => {
+      const features = await loadPionFeatures();
+      return features.opusRED ?? { supported: false, reason: "Server does not advertise opusRED" };
+    },
+    "browser.opusREDSend": async () => opusRED(RTCRtpSender.getCapabilities?.("audio") ?? null, "sending"),
+    "browser.opusREDReceive": async () => opusRED(RTCRtpReceiver.getCapabilities?.("audio") ?? null, "receiving"),
     "browser.dtlsRestart": async () => {
       const offerer = new RTCPeerConnection();
       const answerer = new RTCPeerConnection();
@@ -72,4 +78,13 @@ export function interopFeatures(loadPionFeatures: () => Promise<Record<string, F
       }
     },
   });
+}
+
+function opusRED(capabilities: RTCRtpCapabilities | null, direction: string): FeatureSupport {
+  const codecs = capabilities?.codecs ?? [];
+  const supported = ["audio/opus", "audio/red"].every(mime => codecs.some(codec =>
+    codec.mimeType.toLowerCase() === mime && codec.clockRate === 48000 && codec.channels === 2));
+  return supported ? { supported: true } : {
+    supported: false, reason: `Browser does not advertise Opus and audio/RED for ${direction}`,
+  };
 }

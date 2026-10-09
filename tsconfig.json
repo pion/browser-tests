@@ -28,6 +28,7 @@
   "include": [
     "scripts/**/*.ts",
     "test/**/*.ts",
+    "stress/**/*.ts",
     "eslint.config.ts",
     "vitest.config.ts",
     "vite-env.d.ts"

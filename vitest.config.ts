@@ -77,7 +77,9 @@ export default defineConfig({
   },
   test: {
     testTimeout: 60_000,
-    include: ["test/**/*.test.ts"],
+    include: ["test/**/*.test.ts",
+      ...(process.env.VITE_OPUS_RED_STRESS === "1" ? ["stress/opus-red-stress.test.ts"] : []),
+      ...(process.env.VITE_OPUS_RED_SOAK === "1" ? ["stress/opus-red-soak.test.ts"] : [])],
     browser: {
       enabled: true,
       provider: webdriverio({ capabilities: capabilitiesByBrowser[browserName] }),
