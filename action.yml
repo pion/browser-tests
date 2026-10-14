@@ -61,6 +61,7 @@ runs:
         PION_WEBRTC_SOURCE: ${{ inputs.webrtc-path }}
         TEST_BROWSER: ${{ inputs.browser }}
         TEST_HEADLESS: ${{ inputs.headless }}
+        TESTSERVER_SUDO: ${{ runner.os == 'macOS' && runner.environment == 'github-hosted' }}
       run: |
         node --input-type=module <<'NODE'
         import path from "node:path";

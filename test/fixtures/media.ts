@@ -2,11 +2,31 @@
  * SPDX-FileCopyrightText: 2026 The Pion community <https://pion.ly>
  * SPDX-License-Identifier: MIT
  */
+import { cdp } from "vitest/browser";
+
 export async function mediaSource(kind: "audio" | "video") {
   if (kind === "audio") {
-    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    const chromium = /(?:Chrome|Chromium)\//.test(navigator.userAgent);
+    const permission = chromium
+      ? await navigator.permissions.query({ name: "microphone" as PermissionName })
+      : undefined;
+    const previous = permission?.state;
+    const setPermission = async (setting: PermissionState) => {
+      await cdp().send("Browser.setPermission", {
+        permission: { name: "microphone" }, setting, origin: location.origin,
+      });
+    };
+    if (chromium) await setPermission("granted");
+    let stream: MediaStream;
+    try {
+      stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    } catch (error) {
+      if (previous) await setPermission(previous);
+      throw error;
+    }
     return { stream, close: async () => {
       stream.getTracks().forEach(track => track.stop());
+      if (previous) await setPermission(previous);
     } };
   }
   const canvas = document.createElement("canvas");

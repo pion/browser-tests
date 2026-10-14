@@ -24,9 +24,10 @@ type ManagedChild = {
   result: Promise<ExitResult>;
   exited: boolean;
   output: string;
+  privileged: boolean;
 };
 
-type CommandOptions = { cwd?: string; env?: NodeJS.ProcessEnv; capture?: boolean };
+type CommandOptions = { cwd?: string; env?: NodeJS.ProcessEnv; capture?: boolean; privileged?: boolean };
 
 const start = (command: string, args: string[], options: CommandOptions = {}) => {
   const child = spawn(command, args, {
@@ -40,6 +41,7 @@ const start = (command: string, args: string[], options: CommandOptions = {}) =>
     process: child,
     exited: false,
     output: "",
+    privileged: options.privileged ?? false,
     result: new Promise((resolve) => {
       child.once("error", (error) => {
         managed.exited = true;
@@ -203,6 +205,33 @@ const stop = async (child: ManagedChild) => {
     return;
   }
 
+  if (child.privileged) {
+    if (child.exited) return;
+    const signalGroup = async (signal: "TERM" | "KILL") => {
+      const killer = spawn("sudo", ["-n", "/bin/kill", `-${signal}`, "--", String(-pid)], { stdio: "ignore" });
+      const code = await new Promise<number | null>((resolve, reject) => {
+        killer.once("error", reject);
+        killer.once("exit", resolve);
+      });
+      if (code !== 0 && !child.exited) {
+        throw new Error(`Could not stop privileged server group ${pid}: sudo kill exited ${code}`);
+      }
+    };
+    await signalGroup("TERM");
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    try {
+      await Promise.race([child.result, new Promise<void>(resolve => {
+        timer = setTimeout(resolve, 5_000);
+      })]);
+      if (!child.exited) await signalGroup("KILL");
+      await child.result;
+    } finally {
+      clearTimeout(timer);
+    }
+
+    return;
+  }
+
   const killGroup = (signal: NodeJS.Signals) => {
     try {
       process.kill(-pid, signal);
@@ -270,9 +299,13 @@ try {
 
     cancellation.signal.throwIfAborted();
     const id = randomUUID();
-    const server = start(executable, [], {
-      env: { ...process.env, TESTSERVER_ADDR: serverAddr, TESTSERVER_ID: id },
-    });
+    const privileged = process.env.TESTSERVER_SUDO === "true";
+    if (privileged) console.log("Running only the Go test server with sudo for local multicast access");
+    const server = privileged
+      ? start("sudo", ["-n", "/usr/bin/env", `TESTSERVER_ADDR=${serverAddr}`, `TESTSERVER_ID=${id}`, executable], { privileged })
+      : start(executable, [], {
+        env: { ...process.env, TESTSERVER_ADDR: serverAddr, TESTSERVER_ID: id },
+      });
     void server.result.then((result) => {
       if (!shuttingDown) {
         cancellation.abort(exitError("Test server", result));
