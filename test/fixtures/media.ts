@@ -26,3 +26,61 @@ export async function mediaSource(kind: "audio" | "video") {
     stream.getTracks().forEach(track => track.stop());
   } };
 }
+
+// A known non-silent source independent of fake microphone settings.
+export async function oscillatorSource(frequency = 440) {
+  const context = new AudioContext({ sampleRate: 48000 });
+  const oscillator = context.createOscillator();
+  const gain = context.createGain();
+  const destination = context.createMediaStreamDestination();
+  oscillator.frequency.value = frequency;
+  gain.gain.value = 0.2;
+  oscillator.connect(gain).connect(destination);
+  oscillator.start();
+  await context.resume();
+  return { stream: destination.stream,
+    close: async () => {
+    oscillator.stop();
+    destination.stream.getTracks().forEach(track => track.stop());
+    await context.close();
+  } };
+}
+
+// Muted playback keeps remote audio flowing while an analyser measures the tone.
+export async function audioSink(browser: RTCPeerConnection) {
+  const context = new AudioContext();
+  const sink = document.createElement("video");
+  sink.autoplay = true;
+  sink.playsInline = true;
+  sink.muted = true;
+  document.body.append(sink);
+  const analyser = context.createAnalyser();
+  const output = context.createGain();
+  output.gain.value = 0;
+  analyser.connect(output).connect(context.destination);
+  let receivedTrack = false;
+  const receive = ({ track }: RTCTrackEvent) => {
+    if (track.kind !== "audio") return;
+    const stream = new MediaStream([track]);
+    sink.srcObject = stream;
+    context.createMediaStreamSource(stream).connect(analyser);
+    receivedTrack = true;
+  };
+  browser.addEventListener("track", receive);
+  await context.resume();
+  const waveform = new Float32Array(analyser.fftSize);
+  return {
+    receivedTrack: () => receivedTrack,
+    rms: () => {
+      analyser.getFloatTimeDomainData(waveform);
+      return Math.sqrt(waveform.reduce((sum, sample) => sum + sample * sample, 0) / waveform.length);
+    },
+    close: async () => {
+      browser.removeEventListener("track", receive);
+      sink.pause();
+      sink.srcObject = null;
+      sink.remove();
+      await context.close();
+    },
+  };
+}
