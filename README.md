@@ -35,13 +35,15 @@ npm run test:chrome
 
 Use `test:firefox`, `test:edge`, or `test:safari` to select another browser.
 `npm test` defaults to Chrome. Browsers run headlessly by default except Safari;
+set `TEST_HEADLESS=false` to show another browser's window.
 
 With Nix, `nix develop` provides Go and Node.js. On Linux it also provides
+Chromium, Firefox, and their WebDrivers.
 
 Arguments after `--` are forwarded to Vitest, apart from `--webrtc`:
 
 ```sh
-npm run test:chrome -- test/ice/mdns.test.ts
+npm run test:chrome -- test/media/srtp.test.ts
 npm run test:firefox -- test/datachannel/echo.test.ts -t 'echoes binary'
 ```
 
