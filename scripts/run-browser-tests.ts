@@ -111,7 +111,7 @@ const parseArguments = () => {
 const prepareWorkspace = async (source: string, directory: string) => {
   const env = { ...process.env, GOWORK: "off" };
   if (!source) {
-    return { env, cwd: rootDir };
+    return { env, cwd: rootDir, webrtcPackage: "github.com/pion/webrtc/v4" };
   }
 
   let checkout = path.resolve(source);
@@ -174,7 +174,7 @@ const prepareWorkspace = async (source: string, directory: string) => {
   }
   cwd = await realpath(cwd);
   await execute("go", ["work", "init", cwd, checkout], { cwd: directory, env });
-  return { cwd, env: { ...env, GOWORK: path.join(directory, "go.work") } };
+  return { cwd, env: { ...env, GOWORK: path.join(directory, "go.work") }, webrtcPackage: modulePath };
 };
 
 const stop = async (child: ManagedChild) => {
@@ -264,9 +264,18 @@ try {
   if (!process.env.TEST_SERVER_URL) {
     buildDir = await mkdtemp(path.join(tmpdir(), "pion-browser-tests-"));
     buildDir = await realpath(buildDir);
-    const { env, cwd } = await prepareWorkspace(source, buildDir);
+    const { env, cwd, webrtcPackage } = await prepareWorkspace(source, buildDir);
     const executable = path.join(buildDir, process.platform === "win32" ? "server.exe" : "server");
-    await execute("go", ["build", "-buildvcs=false", "-o", executable, "."], { env, cwd });
+    const api = await execute("go", ["doc", "-short", webrtcPackage], { env, cwd, capture: true });
+    const buildArgs = ["build", "-buildvcs=false", "-o", executable];
+    if (/^func ConfigureOpusRED\(/m.test(api)) {
+      const tags = await execute("go", ["list", "-f", "{{join context.BuildTags \",\"}}", "."], { env, cwd, capture: true });
+      buildArgs.push("-tags", [tags, "pion_opus_red"].filter(Boolean).join(","));
+      console.log("Pion Opus RED API detected; enabling RED test adapter");
+    } else {
+      console.log("Pion Opus RED API unavailable; RED tests can skip with a reason");
+    }
+    await execute("go", [...buildArgs, "."], { env, cwd });
 
     cancellation.signal.throwIfAborted();
     const id = randomUUID();

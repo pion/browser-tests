@@ -26,17 +26,21 @@ type behavior struct {
 }
 
 var behaviors = map[string]behavior{ //nolint:gochecknoglobals
-	"none":             {},
-	"datachannel-echo": {setup: echo, channel: echoChannel},
-	"media-echo":       {setup: mediaEcho},
+	"none":              {},
+	"datachannel-echo":  {setup: echo, channel: echoChannel},
+	"media-echo":        {setup: mediaEcho},
+	"red-audio-send":    {},
+	"red-audio-receive": {},
 }
 
 type peer struct {
-	behavior   behavior
-	pc         *webrtc.PeerConnection
-	mu         sync.Mutex
-	candidates []webrtc.ICECandidateInit
-	states     []string
+	behavior     behavior
+	pc           *webrtc.PeerConnection
+	mu           sync.Mutex
+	candidates   []webrtc.ICECandidateInit
+	states       []string
+	observations *rtpRecorder
+	codecOrder   string
 }
 
 type Server struct {
@@ -62,6 +66,7 @@ func (s *Server) Register(mux *http.ServeMux) {
 	mux.HandleFunc("POST /peers/{id}/{operation}", s.operate)
 	mux.HandleFunc("GET /peers/{id}", s.snapshot)
 	mux.HandleFunc("GET /peers/{id}/stats", s.stats)
+	mux.HandleFunc("GET /peers/{id}/rtp", s.rtp)
 	mux.HandleFunc("DELETE /peers/{id}", s.remove)
 }
 
@@ -87,8 +92,41 @@ func (s *Server) create(res http.ResponseWriter, req *http.Request) {
 		CertificateCount int                  `json:"certificateCount"`
 		Behavior         string               `json:"behavior"`
 		Configuration    webrtc.Configuration `json:"configuration"`
+		OpusRED          bool                 `json:"opusRED"`
+		REDPayloadTypes  *redPayloadTypes     `json:"opusREDPayloadTypes"`
+		AudioCodecOrder  string               `json:"audioCodecOrder"`
+		REDSource        *redSourceOptions    `json:"redSource"`
 	}
 	if !decode(res, req, &body) {
+		return
+	}
+	redOptions := redPeerOptions{PayloadTypes: body.REDPayloadTypes, CodecOrder: body.AudioCodecOrder}
+	if !body.OpusRED && (body.REDPayloadTypes != nil || body.AudioCodecOrder != "" ||
+		body.REDSource != nil) {
+		http.Error(res, "RED audio options require opusRED", http.StatusBadRequest)
+
+		return
+	}
+	if body.REDSource != nil && body.Behavior != "red-audio-send" {
+		http.Error(res, "redSource requires red-audio-send", http.StatusBadRequest)
+
+		return
+	}
+	if body.OpusRED {
+		if err := redOptions.validate(); err != nil {
+			http.Error(res, err.Error(), http.StatusBadRequest)
+
+			return
+		}
+	}
+	if (body.Behavior == "red-audio-send" || body.Behavior == "red-audio-receive") && !body.OpusRED {
+		http.Error(res, "RED audio behaviors require opusRED", http.StatusBadRequest)
+
+		return
+	}
+	if body.OpusRED && !opusREDSupport().Supported {
+		http.Error(res, opusREDSupport().Reason, http.StatusNotImplemented)
+
 		return
 	}
 	if body.Behavior == "" {
@@ -131,13 +169,27 @@ func (s *Server) create(res http.ResponseWriter, req *http.Request) {
 	loggerFactory := logging.NewDefaultLoggerFactory()
 	loggerFactory.DefaultLogLevel = logging.LogLevelDebug
 	settings := webrtc.SettingEngine{LoggerFactory: loggerFactory}
-	pc, err := webrtc.NewAPI(webrtc.WithSettingEngine(settings)).NewPeerConnection(body.Configuration)
+	var pc *webrtc.PeerConnection
+	var err error
+	var observation *rtpRecorder
+	if body.OpusRED {
+		observation, err = newRTPRecorder(body.REDSource)
+		if err != nil {
+			http.Error(res, err.Error(), http.StatusBadRequest)
+
+			return
+		}
+		pc, err = newOpusREDPeer(settings, body.Configuration, observation, redOptions)
+	} else {
+		pc, err = webrtc.NewAPI(webrtc.WithSettingEngine(settings)).NewPeerConnection(body.Configuration)
+	}
 	if err != nil {
 		http.Error(res, err.Error(), http.StatusBadRequest)
 
 		return
 	}
-	session := &peer{behavior: selected, pc: pc, candidates: []webrtc.ICECandidateInit{}, states: []string{}}
+	session := &peer{behavior: selected, pc: pc, observations: observation, codecOrder: body.AudioCodecOrder,
+		candidates: []webrtc.ICECandidateInit{}, states: []string{}}
 	pc.OnICECandidate(func(c *webrtc.ICECandidate) {
 		if c != nil {
 			session.mu.Lock()
@@ -145,19 +197,45 @@ func (s *Server) create(res http.ResponseWriter, req *http.Request) {
 			session.mu.Unlock()
 		}
 	})
-	pc.OnConnectionStateChange(func(state webrtc.PeerConnectionState) {
-		session.mu.Lock()
-		session.states = append(session.states, state.String())
-		session.mu.Unlock()
-	})
-	if selected.setup != nil {
-		if err = selected.setup(pc); err != nil {
+	setup := selected.setup
+	var mediaStateChange func(webrtc.PeerConnectionState)
+	if observation != nil && body.Behavior == "media-echo" {
+		setup = func(pc *webrtc.PeerConnection) error { return mediaEchoObserved(pc, observation) }
+	}
+	if body.Behavior == "red-audio-receive" {
+		setup = func(pc *webrtc.PeerConnection) error { return redAudioReceive(pc, observation) }
+	}
+	if body.Behavior == "red-audio-send" {
+		setup = func(pc *webrtc.PeerConnection) error {
+			mediaStateChange, err = redAudioSend(pc, observation)
+
+			return err
+		}
+	}
+	if setup != nil {
+		if err = setup(pc); err != nil {
 			_ = pc.Close()
 			http.Error(res, err.Error(), http.StatusBadRequest)
 
 			return
 		}
 	}
+	if body.OpusRED {
+		if err = setREDAudioPreferences(pc, body.AudioCodecOrder); err != nil {
+			_ = pc.Close()
+			http.Error(res, err.Error(), http.StatusBadRequest)
+
+			return
+		}
+	}
+	pc.OnConnectionStateChange(func(state webrtc.PeerConnectionState) {
+		session.mu.Lock()
+		session.states = append(session.states, state.String())
+		session.mu.Unlock()
+		if mediaStateChange != nil {
+			mediaStateChange(state)
+		}
+	})
 	id := strconv.FormatUint(s.next.Add(1), 10)
 	s.mu.Lock()
 	s.peers[id] = session
@@ -216,6 +294,19 @@ func (s *Server) stats(res http.ResponseWriter, req *http.Request) {
 	reply(res, session.pc.GetStats())
 }
 
+func (s *Server) rtp(res http.ResponseWriter, req *http.Request) {
+	session := s.lookup(res, req)
+	if session == nil {
+		return
+	}
+	if session.observations == nil {
+		http.Error(res, "RTP observations require an opusRED peer", http.StatusBadRequest)
+
+		return
+	}
+	reply(res, session.observations.snapshot())
+}
+
 func (s *Server) operate(res http.ResponseWriter, req *http.Request) {
 	session := s.lookup(res, req)
 	if session == nil {
@@ -253,6 +344,9 @@ func (s *Server) operate(res http.ResponseWriter, req *http.Request) {
 			err = session.pc.SetLocalDescription(description)
 		} else {
 			err = session.pc.SetRemoteDescription(description)
+			if err == nil && description.Type == webrtc.SDPTypeOffer && session.observations != nil {
+				err = setREDAudioPreferences(session.pc, session.codecOrder)
+			}
 		}
 	case "add-ice-candidate":
 		var candidate webrtc.ICECandidateInit
