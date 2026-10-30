@@ -21,6 +21,8 @@ import (
 )
 
 type behavior struct {
+	// api builds the peer's API when the behavior needs its own codecs or interceptors.
+	api     func(webrtc.SettingEngine) (*webrtc.API, error)
 	setup   func(*webrtc.PeerConnection) error
 	channel func(*webrtc.DataChannel)
 }
@@ -131,7 +133,19 @@ func (s *Server) create(res http.ResponseWriter, req *http.Request) {
 	loggerFactory := logging.NewDefaultLoggerFactory()
 	loggerFactory.DefaultLogLevel = logging.LogLevelDebug
 	settings := webrtc.SettingEngine{LoggerFactory: loggerFactory}
-	pc, err := webrtc.NewAPI(webrtc.WithSettingEngine(settings)).NewPeerConnection(body.Configuration)
+	newAPI := func(settings webrtc.SettingEngine) (*webrtc.API, error) {
+		return webrtc.NewAPI(webrtc.WithSettingEngine(settings)), nil
+	}
+	if selected.api != nil {
+		newAPI = selected.api
+	}
+	api, err := newAPI(settings)
+	if err != nil {
+		http.Error(res, err.Error(), http.StatusInternalServerError)
+
+		return
+	}
+	pc, err := api.NewPeerConnection(body.Configuration)
 	if err != nil {
 		http.Error(res, err.Error(), http.StatusBadRequest)
 

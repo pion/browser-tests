@@ -62,3 +62,28 @@ func TestFeatureDiscoveryAndOptionalOffer(t *testing.T) {
 		require.Contains(t, response.Body.String(), capabilities["dtlsRestart"].Reason)
 	}
 }
+
+func TestBuildFeatureFlexFECMultiFrame(t *testing.T) {
+	server := New()
+	defer server.Close()
+	mux := http.NewServeMux()
+	server.Register(mux)
+
+	support, ok := features()["flexfecMultiFrame"]
+	require.True(t, ok, "feature is always advertised")
+
+	response := httptest.NewRecorder()
+	mux.ServeHTTP(response, httptest.NewRequest("POST", "/peers", strings.NewReader(`{"behavior":"flexfec-echo"}`)))
+	if support.Supported {
+		require.Equal(t, http.StatusOK, response.Code, response.Body.String())
+		var created map[string]string
+		require.NoError(t, json.Unmarshal(response.Body.Bytes(), &created))
+		offer := httptest.NewRecorder()
+		mux.ServeHTTP(offer, httptest.NewRequest("POST", "/peers/"+created["id"]+"/create-offer", strings.NewReader(`{}`)))
+		require.Equal(t, http.StatusOK, offer.Code, offer.Body.String())
+		require.Contains(t, offer.Body.String(), "flexfec-03/90000")
+	} else {
+		require.NotEmpty(t, support.Reason)
+		require.Equal(t, http.StatusBadRequest, response.Code, "behavior is only built with the feature")
+	}
+}

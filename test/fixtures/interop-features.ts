@@ -11,6 +11,16 @@ export function interopFeatures(loadPionFeatures: () => Promise<Record<string, F
       const features = await loadPionFeatures();
       return features.dtlsRestart ?? { supported: false, reason: "Server does not advertise dtlsRestart" };
     },
+    "pion.flexfecMultiFrame": async () => {
+      const features = await loadPionFeatures();
+      return features.flexfecMultiFrame ?? { supported: false, reason: "Server does not advertise flexfecMultiFrame" };
+    },
+    "browser.flexfecReceive": async () => {
+      const codecs = RTCRtpReceiver.getCapabilities("video")?.codecs ?? [];
+      return codecs.some(codec => codec.mimeType.toLowerCase() === "video/flexfec-03")
+        ? { supported: true }
+        : { supported: false, reason: "Browser cannot receive video/flexfec-03" };
+    },
     "browser.dtlsRestart": async () => {
       const offerer = new RTCPeerConnection();
       const answerer = new RTCPeerConnection();
