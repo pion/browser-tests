@@ -177,6 +177,34 @@ const prepareWorkspace = async (source: string, directory: string) => {
   return { cwd, env: { ...env, GOWORK: path.join(directory, "go.work") } };
 };
 
+// Server features that use APIs older dependencies lack. Each is compiled in with its Go
+// build tag only when the selected dependencies declare the symbol; otherwise the server
+// reports it as unsupported and the tests that need it are skipped.
+const buildFeatures = [
+  { tag: "flexfec_multiframe", pkg: "github.com/pion/interceptor/pkg/flexfec", declaration: /^func MultiFrame\(/m },
+];
+
+const detectBuildTags = async (cwd: string, env: NodeJS.ProcessEnv) => {
+  const tags: string[] = [];
+  for (const feature of buildFeatures) {
+    // -e reports a package missing from the build as an error field rather than failing:
+    // the feature is then simply unavailable.
+    const dir = await execute("go", ["list", "-e", "-f", "{{if not .Error}}{{.Dir}}{{end}}", feature.pkg],
+      { cwd, env, capture: true });
+    if (!dir) {
+      continue;
+    }
+    const files = (await readdir(dir)).filter(file => file.endsWith(".go") && !file.endsWith("_test.go"));
+    for (const file of files) {
+      if (feature.declaration.test(await readFile(path.join(dir, file), "utf8"))) {
+        tags.push(feature.tag);
+        break;
+      }
+    }
+  }
+  return tags;
+};
+
 const stop = async (child: ManagedChild) => {
   const pid = child.process.pid;
   if (!pid) {
@@ -266,7 +294,9 @@ try {
     buildDir = await realpath(buildDir);
     const { env, cwd } = await prepareWorkspace(source, buildDir);
     const executable = path.join(buildDir, process.platform === "win32" ? "server.exe" : "server");
-    await execute("go", ["build", "-buildvcs=false", "-o", executable, "."], { env, cwd });
+    const tags = await detectBuildTags(cwd, env);
+    console.log(`Optional server features: ${tags.length ? tags.join(", ") : "none"}`);
+    await execute("go", ["build", "-buildvcs=false", `-tags=${tags.join(",")}`, "-o", executable, "."], { env, cwd });
 
     cancellation.signal.throwIfAborted();
     const id = randomUUID();

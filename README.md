@@ -65,6 +65,12 @@ workspace.
 Set `PION_WEBRTC_REPOSITORY` to fetch remote revisions from a different Git
 repository, such as a fork.
 
+Some tests cover features that are not released yet. The server compiles them
+in with a Go build tag only when the selected dependencies provide them, and the
+tests are skipped otherwise. To test an unreleased dependency such as
+`pion/interceptor`, point the WebRTC checkout at it with a `replace` directive.
+For example, `flexfec_multiframe` is enabled when `flexfec.MultiFrame` exists.
+
 ## Development
 
 Browser tests live in [test/](test/). Shared fixtures in

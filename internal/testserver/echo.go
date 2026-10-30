@@ -6,6 +6,7 @@ package testserver
 import (
 	"log"
 
+	"github.com/pion/rtcp"
 	"github.com/pion/webrtc/v4"
 )
 
@@ -30,6 +31,12 @@ func echoChannel(dc *webrtc.DataChannel) {
 }
 
 func mediaEcho(pc *webrtc.PeerConnection) error {
+	return echoMedia(pc, nil)
+}
+
+// echoMedia sends every received track back to the peer. onRTCP, if set, sees the RTCP
+// packets the peer sends about the echoed tracks.
+func echoMedia(pc *webrtc.PeerConnection, onRTCP func([]rtcp.Packet)) error {
 	tracks := make(map[webrtc.RTPCodecType]*webrtc.TrackLocalStaticRTP)
 	for _, codec := range []webrtc.RTPCodecCapability{
 		{MimeType: webrtc.MimeTypeOpus, ClockRate: 48000, Channels: 2},
@@ -46,8 +53,12 @@ func mediaEcho(pc *webrtc.PeerConnection) error {
 		tracks[track.Kind()] = track
 		go func() {
 			for {
-				if _, _, readErr := sender.ReadRTCP(); readErr != nil {
+				packets, _, readErr := sender.ReadRTCP()
+				if readErr != nil {
 					return
+				}
+				if onRTCP != nil {
+					onRTCP(packets)
 				}
 			}
 		}()

@@ -79,11 +79,16 @@ require github.com/pion/webrtc/v4 v4.2.20
           w.Write([]byte("ok"))
         })
         http.HandleFunc("/source", func(w http.ResponseWriter, r *http.Request) {
-          w.Write([]byte(webrtc.SourceMarker))
+          w.Write([]byte(webrtc.SourceMarker + featureSuffix))
         })
         if err := http.ListenAndServe(os.Getenv("TESTSERVER_ADDR"), nil); err != nil { panic(err) }
       }
     `);
+    // Optional features are compiled in through build tags, which change the reported source.
+    await writeFile(path.join(fixture, "feature_off.go"),
+      "//go:build !flexfec_multiframe\n\npackage main\n\nconst featureSuffix = \"\"\n");
+    await writeFile(path.join(fixture, "feature_on.go"),
+      "//go:build flexfec_multiframe\n\npackage main\n\nconst featureSuffix = \" with flexfec_multiframe\"\n");
     await writeFile(path.join(fixture, "node_modules", "vitest", "vitest.mjs"), `
       import assert from "node:assert/strict";
       const response = await fetch(process.env.VITE_TEST_SERVER_URL + "/source");
@@ -157,6 +162,37 @@ require github.com/pion/webrtc/v4 v4.2.20
     await run(["--webrtc", "v5.0.0", "--reporter", "dot"], { EXPECTED_SOURCE: "v5 committed" });
     assert.deepEqual(await Promise.all(files.map(file => readFile(file, "utf8"))), before);
     assert.equal(await git("status", "--porcelain"), status);
+  });
+
+  it("compiles optional server features in only when the selected dependencies declare them", async () => {
+    // Mirrors testing an unreleased dependency: the WebRTC checkout replaces pion/interceptor.
+    const interceptor = path.join(fixture, "interceptor");
+    const flexfec = path.join(interceptor, "pkg", "flexfec");
+    await mkdir(flexfec, { recursive: true });
+    await writeFile(path.join(interceptor, "go.mod"), "module github.com/pion/interceptor\n\ngo 1.24.0\n");
+    await writeFile(path.join(flexfec, "flexfec.go"), "package flexfec\n");
+    await writeFile(path.join(upstream, "go.mod"), `module github.com/pion/webrtc/v4
+
+go 1.24.0
+
+require github.com/pion/interceptor v0.0.0
+
+replace github.com/pion/interceptor => ../interceptor
+`);
+    await setSource("dependency features");
+
+    let { stdout } = await run(["--webrtc", upstream, "--reporter", "dot"], { EXPECTED_SOURCE: "dependency features" });
+    assert.match(stdout, /Optional server features: none/);
+
+    // Only a declaration counts, not a mention in a test file.
+    await writeFile(path.join(flexfec, "flexfec_test.go"), "package flexfec\n\nfunc MultiFrame() {}\n");
+    ({ stdout } = await run(["--webrtc", upstream, "--reporter", "dot"], { EXPECTED_SOURCE: "dependency features" }));
+    assert.match(stdout, /Optional server features: none/);
+
+    await writeFile(path.join(flexfec, "multiframe.go"), "package flexfec\n\nfunc MultiFrame(maxFrames uint32) {}\n");
+    ({ stdout } = await run(["--webrtc", upstream, "--reporter", "dot"],
+      { EXPECTED_SOURCE: "dependency features with flexfec_multiframe" }));
+    assert.match(stdout, /Optional server features: flexfec_multiframe/);
   });
 
   it("rejects missing paths, wrong modules, invalid refs, and conflicting external-server mode", async () => {
