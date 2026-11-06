@@ -30,6 +30,10 @@ func echoChannel(dc *webrtc.DataChannel) {
 }
 
 func mediaEcho(pc *webrtc.PeerConnection) error {
+	return mediaEchoObserved(pc, nil)
+}
+
+func mediaEchoObserved(pc *webrtc.PeerConnection, observation *rtpRecorder) error {
 	tracks := make(map[webrtc.RTPCodecType]*webrtc.TrackLocalStaticRTP)
 	for _, codec := range []webrtc.RTPCodecCapability{
 		{MimeType: webrtc.MimeTypeOpus, ClockRate: 48000, Channels: 2},
@@ -57,11 +61,20 @@ func mediaEcho(pc *webrtc.PeerConnection) error {
 		for {
 			packet, _, err := remote.ReadRTP()
 			if err != nil {
+				if observation != nil {
+					observation.recordError(err)
+				}
 				return
+			}
+			if observation != nil && remote.Kind() == webrtc.RTPCodecTypeAudio {
+				observation.record(&observation.observation.Application, &packet.Header, packet.Payload)
 			}
 			packet.Extension = false
 			packet.Extensions = nil
 			if err = local.WriteRTP(packet); err != nil {
+				if observation != nil {
+					observation.recordError(err)
+				}
 				log.Printf("media echo %s: %v", remote.Kind(), err)
 
 				return

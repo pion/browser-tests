@@ -65,10 +65,13 @@ const capabilitiesByBrowser = {
   },
   safari: {
     "wdio:enforceWebDriverClassic": true,
+    "webkit:alwaysAllowAutoplay": true,
   },
 } satisfies Record<
   typeof browserName,
-  NonNullable<WebdriverProviderOptions["capabilities"]>
+  NonNullable<WebdriverProviderOptions["capabilities"]> & {
+    "webkit:alwaysAllowAutoplay"?: boolean;
+  }
 >;
 
 export default defineConfig({
