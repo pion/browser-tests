@@ -2,6 +2,28 @@
  * SPDX-FileCopyrightText: 2026 The Pion community <https://pion.ly>
  * SPDX-License-Identifier: MIT
  */
+import { userEvent } from "vitest/browser";
+
+async function resumeAudio(context: AudioContext) {
+  if (context.state === "running") return;
+  // Safari needs a trusted gesture for generated audio. Keep this local to
+  // audio fixtures instead of overriding the browser's media policies.
+  const start = document.createElement("button");
+  start.textContent = "Start test audio";
+  document.body.append(start);
+  const resumed = new Promise<void>((resolve, reject) => {
+    start.onclick = () => { void context.resume().then(resolve, reject); };
+  });
+  void resumed.catch(() => {});
+  try {
+    await userEvent.click(start);
+    await resumed;
+  } finally {
+    start.onclick = null;
+    start.remove();
+  }
+}
+
 export async function mediaSource(kind: "audio" | "video") {
   if (kind === "audio") {
     const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
@@ -37,13 +59,18 @@ export async function oscillatorSource(frequency = 440) {
   gain.gain.value = 0.2;
   oscillator.connect(gain).connect(destination);
   oscillator.start();
-  await context.resume();
-  return { stream: destination.stream,
-    close: async () => {
+  const close = async () => {
     oscillator.stop();
     destination.stream.getTracks().forEach(track => track.stop());
     await context.close();
-  } };
+  };
+  try {
+    await resumeAudio(context);
+    return { stream: destination.stream, close };
+  } catch (error) {
+    await close();
+    throw error;
+  }
 }
 
 // Each track has its own muted playback and analyser so silent tracks cannot
@@ -70,7 +97,13 @@ export async function audioSink(browser: RTCPeerConnection) {
     } });
   };
   browser.addEventListener("track", receive);
-  await context.resume();
+  try {
+    await resumeAudio(context);
+  } catch (error) {
+    browser.removeEventListener("track", receive);
+    await context.close();
+    throw error;
+  }
   return {
     sinks,
     receivedTrack: () => sinks.size > 0,
