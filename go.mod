@@ -5,6 +5,7 @@ go 1.24.0
 toolchain go1.27.3
 
 require (
+	github.com/pion/format v0.0.1
 	github.com/pion/logging v0.2.4
 	github.com/pion/webrtc/v4 v4.2.26
 	github.com/stretchr/testify v1.12.1

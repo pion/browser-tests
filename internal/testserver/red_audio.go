@@ -12,9 +12,9 @@ import (
 	"sync"
 	"time"
 
+	"github.com/pion/format/oggreader"
 	"github.com/pion/rtp"
 	"github.com/pion/webrtc/v4"
-	"github.com/pion/webrtc/v4/pkg/media/oggreader"
 )
 
 // Two seconds of 20 ms Opus frames is enough for transmission and playback checks.
